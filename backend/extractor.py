@@ -13,7 +13,7 @@ from .models import (
 )
 
 def extract_exif_gps(image_path: str) -> Optional[Tuple[float, float]]:
-    """Extracts GPS coordinates from image EXIF if available."""
+    """Extracts GPS coordinates from image EXIF metadata if present."""
     try:
         img = Image.open(image_path)
         exif = img._getexif()
@@ -44,7 +44,7 @@ def extract_exif_gps(image_path: str) -> Optional[Tuple[float, float]]:
         return None
 
 def parse_docx_file(filepath: str) -> str:
-    """Reads full text from a .docx file."""
+    """Reads digital text and tables from Word docx."""
     try:
         doc = Document(filepath)
         texts = []
@@ -60,8 +60,8 @@ def parse_docx_file(filepath: str) -> str:
     except Exception as e:
         return f"[DOCX Error: {e}]"
 
-def parse_pdf_text_and_images(filepath: str, max_pages: int = 20) -> Tuple[str, List[bytes]]:
-    """Extracts digital text and renders page images for OCR/Vision."""
+def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, List[bytes]]:
+    """Extracts digital text and renders high-res page images for OCR/Vision."""
     text_content = []
     page_images = []
     try:
@@ -72,7 +72,7 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 20) -> Tuple[str, 
             if txt.strip():
                 text_content.append(f"--- [Page {page_num + 1}] ---\n{txt}")
             
-            # Render page to image for multimodal LLM vision
+            # Render page at 150 DPI for multimodal OCR vision
             pix = page.get_pixmap(dpi=150)
             img_bytes = pix.tobytes("jpeg")
             page_images.append(img_bytes)
@@ -116,9 +116,9 @@ class CaseExtractor:
                 aggregated_text.append(f"=== DOCX FILE: {filename} ===\n{doc_text}")
             elif ext == ".pdf":
                 file_type = "property_pdf"
-                pdf_text, p_images = parse_pdf_text_and_images(file_path, max_pages=15)
+                pdf_text, p_images = parse_pdf_text_and_images(file_path, max_pages=20)
                 aggregated_text.append(f"=== PDF FILE: {filename} ===\n{pdf_text}")
-                images_to_process.extend(p_images[:3])
+                images_to_process.extend(p_images[:4])
             elif ext in [".jpeg", ".jpg", ".png", ".webp"]:
                 file_type = "site_photo"
                 gps = extract_exif_gps(file_path)
@@ -142,137 +142,156 @@ class CaseExtractor:
             "gps_from_exif": found_gps
         }
 
-    def rule_based_fallback_extraction(self, all_text: str, gps_exif: Optional[str] = None) -> ReportData:
-        """High-precision local regex/rule-based extractor."""
+    def dynamic_entity_extractor(self, all_text: str, gps_exif: Optional[str] = None) -> ReportData:
+        """
+        Universal NLP & regex entity extractor for any Indian banking/valuation case.
+        Extracts names, plot/khasra numbers, boundaries, dimensions, and addresses dynamically.
+        """
         report = ReportData()
         clean_text = " ".join(all_text.split())
 
-        # 1. Header Info
-        app_id_m = re.search(r'AP[-_ ]*(\d{5,10})', all_text, re.IGNORECASE)
+        # 1. Application ID
+        app_id_m = re.search(r'(?:Application\s*ID|App\s*No\.?|Loan\s*No\.?|Ref\s*No\.?)\s*[:\-]?\s*([A-Za-z0-9\-_/]+)', all_text, re.IGNORECASE)
         if app_id_m:
-            report.header.application_id = f"AP-{app_id_m.group(1)}"
+            report.header.application_id = app_id_m.group(1).strip()
         else:
-            report.header.application_id = "AP-10524478"
+            id_fallback = re.search(r'(AP[-_]\d{5,12})', all_text, re.IGNORECASE)
+            if id_fallback:
+                report.header.application_id = id_fallback.group(1).strip()
 
-        # Applicant name
-        name_m = re.search(r'Applicant Name\s*[:\-]?\s*(Mrs\.?\s*[A-Za-z ]+|Smt\.?\s*[A-Za-z ]+)', all_text, re.IGNORECASE)
+        # 2. Applicant Name
+        name_m = re.search(r'(?:Applicant\s*Name|Borrower\s*Name|Purchaser|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\.\s]{3,40})', all_text, re.IGNORECASE)
         if name_m:
-            report.header.applicant_name = name_m.group(1).strip()
-        elif "Sunita Devi" in all_text or "Sunita" in all_text:
-            report.header.applicant_name = "Mrs. Sunita Devi"
-        
-        # Geo Tag
+            candidate = name_m.group(1).strip()
+            # clean trailing words
+            candidate = re.split(r'(\n|\r|Type|Address|Age|Plot|and|Son|Wife)', candidate, flags=re.IGNORECASE)[0].strip()
+            report.header.applicant_name = candidate
+        else:
+            purchaser_m = re.search(r'(?:Purchaser|Second\s*Party)\s*[:\-]?\s*(?:Mrs?\.?|Smt\.?|Sh\.?|Shri)?\s*([A-Za-z\s]{3,35})', all_text, re.IGNORECASE)
+            if purchaser_m:
+                report.header.applicant_name = purchaser_m.group(1).strip()
+
+        # 3. Geo Tag / GPS Coordinates
         geo_m = re.search(r'(\d{2}\.\d{4,8})\s*,\s*(\d{2}\.\d{4,8})', all_text)
         if geo_m:
             report.header.geo_tag = f"{geo_m.group(1)}, {geo_m.group(2)}"
         elif gps_exif:
             report.header.geo_tag = gps_exif
-        else:
-            report.header.geo_tag = "28.627023, 77.026233"
 
-        # Age of Property
-        age_m = re.search(r'(\d{1,2}\s*(?:Years?|Yrs?))\s*old', all_text, re.IGNORECASE)
+        # 4. Age of Property & Structure
+        age_m = re.search(r'(\d{1,2}\s*(?:Years?|Yrs?))\s*(?:old|age)?', all_text, re.IGNORECASE)
         if age_m:
             report.header.age_of_property = f"{age_m.group(1).title()}"
-        elif "08 years" in all_text.lower() or "8 years" in all_text.lower():
-            report.header.age_of_property = "08 Years"
 
-        # 2. Address Info
-        report.address.street_name = "Gali No. 14"
-        report.address.nearest_landmark = "Nearby Aggarwal Store"
-        report.address.village_name = "Nawada"
-        report.address.city = "New Delhi"
-        report.address.plot_house_khasra = "Property No. 8-B"
-        report.address.floor_number = "Entire Property"
-        report.address.colony_name = "Vipin garden Extn."
-        report.address.pincode = "110059"
-        report.address.district = "New Delhi"
+        if "load bearing" in all_text.lower():
+            report.header.structure_type = "Load Bearing"
+        elif "rcc" in all_text.lower():
+            report.header.structure_type = "RCC"
 
-        # Extract structured address lines from normalized text
-        site_match = re.search(r'(Property No\.\s*8-B,\s*Situated in[^\n\r]*?New Delhi[\- ]*110059)', clean_text, re.IGNORECASE)
-        if site_match:
-            report.address.address_site = site_match.group(1).strip()
-        else:
-            report.address.address_site = "Property No. 8-B, Situated in Village-Nawada, Gali No. 14, Vipin garden Extn., Uttam Nagar, New Delhi-110059"
+        # 5. Property / Plot / Khasra Identification
+        plot_m = re.search(r'(?:Plot\s*No\.?|Property\s*(?:Bearing\s*Plot\s*)?No\.?)\s*([A-Za-z0-9\-_]+)', all_text, re.IGNORECASE)
+        khasra_m = re.search(r'(?:Khasra\s*No\.?|Khata\s*No\.?)\s*([0-9\s,&]+)', all_text, re.IGNORECASE)
+        
+        plot_val = plot_m.group(1).strip() if plot_m else ""
+        if plot_val:
+            report.address.plot_house_khasra = f"Property No. {plot_val}"
 
-        doc_match = re.search(r'(Property Bearing Plot No\.[^\n\r]*?New Delhi[\- ]*110059)', clean_text, re.IGNORECASE)
+        # 6. Dimensions (Length & Breadth)
+        dim_m = re.search(r'(\d+(?:\.\d+)?)\s*(?:x|X|\*|by|X)\s*(\d+(?:\.\d+)?)', all_text)
+        if dim_m:
+            d1 = float(dim_m.group(1))
+            d2 = float(dim_m.group(2))
+            length = max(d1, d2)
+            breadth = min(d1, d2)
+            report.land_measurements.land_length = length
+            report.land_measurements.land_breadth = breadth
+            report.solar_roof_vicinity.roof_length_sqft = breadth
+            report.solar_roof_vicinity.roof_breadth_sqft = length
+
+        # 7. Land Area (Sq Yds / Sq Ft)
+        area_sqyds_m = re.search(r'(\d+(?:\.\d+)?)\s*(?:Sq\.?\s*Yds?|Sq\.?\s*Yards?|Sq\s*Yrd)', all_text, re.IGNORECASE)
+        area_sqft_m = re.search(r'(\d+(?:\.\d+)?)\s*(?:Sq\.?\s*Ft|Sqft|Square\s*Feet)', all_text, re.IGNORECASE)
+        
+        if area_sqft_m:
+            sqft_val = float(area_sqft_m.group(1))
+            report.land_measurements.land_area_site_sqft = f"{sqft_val} Sqft"
+            report.land_measurements.adopted_land_area_sqft = sqft_val
+        elif area_sqyds_m:
+            sqyds_val = float(area_sqyds_m.group(1))
+            sqft_calc = round(sqyds_val * 9.0, 1)
+            report.land_measurements.land_area_site_sqft = f"{sqft_calc} Sqft"
+            report.land_measurements.adopted_land_area_sqft = sqft_calc
+        elif report.land_measurements.land_length and report.land_measurements.land_breadth:
+            calc_area = round(report.land_measurements.land_length * report.land_measurements.land_breadth, 1)
+            report.land_measurements.land_area_site_sqft = f"{calc_area} Sqft"
+            report.land_measurements.adopted_land_area_sqft = calc_area
+
+        # 8. Pincode & City
+        pin_m = re.search(r'\b(1100\d{2}|1200\d{2}|2013\d{2}|3020\d{2}|\d{6})\b', all_text)
+        if pin_m:
+            report.address.pincode = pin_m.group(1)
+
+        # 9. Street / Landmark / Village / Colony
+        street_m = re.search(r'(Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+|Street\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
+        if street_m:
+            report.address.street_name = street_m.group(1).strip()
+
+        colony_m = re.search(r'(?:Abadi\s*Known\s*as|Colony|Enclave|Garden|Vihar|Nagar)\s*[:\-]?\s*([A-Za-z\s]+(?:Extn\.?|Extension|Vihar|Nagar|Garden|Enclave))', all_text, re.IGNORECASE)
+        if colony_m:
+            report.address.colony_name = colony_m.group(1).strip()
+
+        village_m = re.search(r'(?:Revenue\s*Estate\s*of\s*Village[\- ]*|Village[\- ]+)([A-Za-z]+)', all_text, re.IGNORECASE)
+        if village_m:
+            report.address.village_name = village_m.group(1).strip()
+
+        # 10. Document Address & Site Address
+        doc_match = re.search(r'(Property\s*(?:Bearing\s*)?Plot\s*No\.[^\n\r]*?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
         if doc_match:
             report.address.address_docs = doc_match.group(1).strip()
-        else:
-            report.address.address_docs = "Property Bearing Plot No. 8-B, Out of Khasra No. 75 & 76, Situated in the Revenue Estate of Village-Nawada, Delhi State Delhi in the Abadi Known as Vipin garden Extn., Uttam Nagar, New Delhi-110059"
 
-        # 3. Boundaries
-        report.boundaries.site_east = "Others Property/Meter No. 21901820"
-        report.boundaries.site_west = "Others Property/Meter No. 46215085"
-        report.boundaries.site_north = "Road 23 Ft Wide"
-        report.boundaries.site_south = "Others Property"
+        site_match = re.search(r'(Property\s*No\.\s*[0-9A-Za-z\-_]+,\s*Situated\s*in[^\n\r]*?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
+        if site_match:
+            report.address.address_site = site_match.group(1).strip()
 
-        report.boundaries.deed_east = "Plot No. 8-A"
-        report.boundaries.deed_west = "Plot No. 9-A"
-        report.boundaries.deed_north = "Road 23 Ft Wide"
-        report.boundaries.deed_south = "Other Land"
+        # 11. Title Deed Boundaries (East, West, North, South)
+        east_m = re.search(r'East\s*[:\-]?\s*([^,\n\r;]+)', all_text, re.IGNORECASE)
+        west_m = re.search(r'West\s*[:\-]?\s*([^,\n\r;]+)', all_text, re.IGNORECASE)
+        north_m = re.search(r'North\s*[:\-]?\s*([^,\n\r;]+)', all_text, re.IGNORECASE)
+        south_m = re.search(r'South\s*[:\-]?\s*([^,\n\r;]+)', all_text, re.IGNORECASE)
 
-        report.boundaries.boundary_matching = "Yes"
-        report.boundaries.mismatch_remarks = "NA"
-        report.boundaries.occupancy_status = "Seller"
+        if east_m: report.boundaries.deed_east = east_m.group(1).strip()
+        if west_m: report.boundaries.deed_west = west_m.group(1).strip()
+        if north_m: report.boundaries.deed_north = north_m.group(1).strip()
+        if south_m: report.boundaries.deed_south = south_m.group(1).strip()
 
-        # 4. Land & Dimensions
-        report.land_measurements.land_length = 38.0
-        report.land_measurements.land_breadth = 15.0
-        report.land_measurements.land_area_site_sqft = "569.7 Sqft"
-        report.land_measurements.adopted_land_area_sqft = 569.7
+        # Road width
+        road_w_m = re.search(r'(\d+\s*(?:Ft|Feet|Meter|Mtr)\s*(?:Wide)?)', all_text, re.IGNORECASE)
+        if road_w_m:
+            report.legal_checks.width_of_public_road = road_w_m.group(1).strip()
 
-        # 5. Roof & Solar
-        report.solar_roof_vicinity.roof_length_sqft = 15.0
-        report.solar_roof_vicinity.roof_breadth_sqft = 38.0
-        report.solar_roof_vicinity.solar_install_location = "Ground"
+        # 12. Person Met & Reference
+        person_m = re.search(r'(?:Person\s*Meet|Met\s*at\s*site|Contact\s*Person)\s*[:\-]?\s*(?:Mr\.?|Mrs\.?|Sh\.?)?\s*([A-Za-z\s]{3,30})', all_text, re.IGNORECASE)
+        if person_m:
+            report.legal_checks.person_met = person_m.group(1).strip()
 
-        # 6. Accommodation & Legal Checks
-        report.accommodation.no_of_floors = 5
-        report.accommodation.toilet_available = "Yes"
-        report.accommodation.electricity_meter_installed = "Yes"
-        report.accommodation.electricity_meter_number = "NA"
+        phone_m = re.search(r'\b([6-9]\d{9})\b', all_text)
+        if phone_m:
+            report.reference.reference_mobile = phone_m.group(1)
 
-        report.legal_checks.person_met = "Mr. Gauarv"
-        report.legal_checks.relation_with_owner = "Applicant's Son"
-        report.legal_checks.property_situated_at = "MC"
-        report.legal_checks.width_of_public_road = "23 Ft Wide"
-        report.legal_checks.opinion_about_report = "Negative"
-        report.legal_checks.occupancy_250m = "80%-90%"
-        report.legal_checks.development_250m = "80%-90%"
-        report.legal_checks.property_limit = "Within MC Limit"
-        report.legal_checks.adm = "Average"
-
-        # 7. Reference
-        report.reference.reference_name = "Local Enquiry"
-        report.reference.reference_mobile = "9540637533"
-        report.reference.feedback = "1 L to 1.10 L per Sqyds"
-
-        # 8. Detailed Remarks (Search for numbered list 1 to 13)
+        # 13. Remarks extraction (Look for numbered points 1. to 13. in DOCX or text)
         remarks_block_m = re.search(r'(1\.\s*Subject Property[\s\S]*?13\.\s*[^\n\r]+)', all_text)
         if remarks_block_m:
             report.remarks = remarks_block_m.group(1).strip() + "\n"
         else:
-            report.remarks = (
-                "1. Subject Property is a S+UG+3 storied residential house built over a plot having area 63.3 Sq Yrd.\n"
-                "2. Access to the property is through Road 23 Ft Wide in North direction.\n"
-                "3. The subject property is 08 years old & same was found seller-occupied as on date of time of site visit.\n"
-                "4. The subject property has identified with help of the applicant & local enquiry, Name Board.\n"
-                "5. Surrounding Vicinity is approx. 80%-90%% within 250 meters radius.\n"
-                "6. The Owner has done 100% ground coverage over the plot and projected front side approx. total 3 ft. beyond the plot limit.\n"
-                "7. The subject property falls under MC Limits.\n"
-                "8. This is to inform you that the applicant had called the engineer to the site. However, upon arrival, the seller informed that the property’s bayana (token/advance) has not yet been completed, and therefore they are not allowing the internal visit at this stage. As a result, only the external (outside) visit was conducted.\n"
-                "9. Provided GPA/ATS is draft only thus required registered title documents.\n"
-                "10. A Soft Copy of GPA/ATS/Possesion Latter/Will Deed has been provided, dated: 12/05/2023 in favor of (1). Mr. Surender Singh S/o Mr. Ram Mahar & (2). Mrs. Sarla W/o Mr. Surender Singh for Property Bearing Plot No. 8-B, Out of Khasra No. 75 & 76, Situated in the Revenue Estate of Village-Nawada, Delhi State Delhi in the Abadi Known as Vipin Garden Extn., Uttam Nagar, New Delhi-110059 for having plot area 63.3 sqyds (15 X 38).\n"
-                "11. A Soft Copy of Draft ATS has been provided, undated in between of (1). Mr. Surender Singh & (2). Mrs. Sarla (Seller) & Mrs. Sunitta Devi W/o Mr. Bachhan Kumar (Purchaser) for Property Bearing Plot No. 8-B, Out of Khasra No. 75 & 76, Situated in the Revenue Estate of Village-Nawada, Delhi State Delhi in the Abadi Known as Vipin Garden Extn., Uttam Nagar, New Delhi-110059 for having plot area 63.3 sqyds\n"
-                "12. The Geo-ordinates of Subject Property are 28.627023, 77.026233.\n"
-                "13. Value of the subject property has not been released due to above mentioned deviations.\n"
-            )
+            # Look for any multiline bullet remarks
+            numbered_m = re.findall(r'(\d+\.\s*[^\n\r]+)', all_text)
+            if len(numbered_m) >= 5:
+                report.remarks = "\n".join(numbered_m) + "\n"
 
         return report
 
     def extract_with_gemini(self, all_text: str, images: List[bytes]) -> Optional[ReportData]:
-        """Calls Multimodal Gemini API to extract structured report."""
+        """Calls Google Gemini Vision & Multimodal LLM to perform deep visual OCR."""
         if not self.api_key:
             return None
 
@@ -283,10 +302,10 @@ class CaseExtractor:
             client = genai.Client(api_key=self.api_key)
             prompt = f"""
 You are an expert Indian Housing Finance & Banking Property Valuation Technical Extraction AI.
-Analyze all provided documents and extract exact field values for the India Shelter Technical Report template.
+Analyze all provided documents (scanned title deeds, GPA chains, ATS, possession letters, site notes, GPS photos) and extract exact field values for the India Shelter Technical Report template.
 
-DOCUMENT TEXT:
-{all_text[:30000]}
+DOCUMENT TEXT EXTRACTED:
+{all_text[:35000]}
 
 Extract and return a JSON object matching this schema:
 {{
@@ -406,7 +425,7 @@ Extract and return a JSON object matching this schema:
 }}
 """
             contents = [prompt]
-            for img_b in images[:3]:
+            for img_b in images[:4]:
                 contents.append(types.Part.from_bytes(data=img_b, mime_type="image/jpeg"))
 
             response = client.models.generate_content(
@@ -422,11 +441,11 @@ Extract and return a JSON object matching this schema:
                 data_dict = json.loads(response.text)
                 return ReportData(**data_dict)
         except Exception as e:
-            print(f"[Gemini Extraction Error: {e}] - Falling back to rule-based engine.")
+            print(f"[Gemini Vision OCR Error: {e}] - Falling back to dynamic regex NLP engine.")
             return None
 
     def process_case_folder(self, folder_path: str) -> ReportData:
-        """Full pipeline: Scan folder -> Multimodal AI -> Rule-based validation & merge."""
+        """Full pipeline: Ingest files -> Multimodal Vision OCR -> Dynamic NLP Entity Extractor."""
         scan_res = self.inspect_folder(folder_path)
         all_text = scan_res["all_text"]
         images = scan_res["images"]
@@ -437,7 +456,7 @@ Extract and return a JSON object matching this schema:
             report = self.extract_with_gemini(all_text, images)
 
         if not report:
-            report = self.rule_based_fallback_extraction(all_text, gps)
+            report = self.dynamic_entity_extractor(all_text, gps)
 
         report.case_name = os.path.basename(folder_path.rstrip("/\\"))
         report.raw_files_summary = scan_res["files"]
