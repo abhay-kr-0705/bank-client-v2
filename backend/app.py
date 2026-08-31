@@ -1,6 +1,14 @@
 import os
 import sys
 import tempfile
+import shutil
+import uuid
+from typing import Optional, List, Any, Union
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCAL_TEMP_DIR = os.path.join(BASE_DIR, "uploads", "temp")
@@ -8,15 +16,6 @@ os.makedirs(LOCAL_TEMP_DIR, exist_ok=True)
 os.environ["TEMP"] = LOCAL_TEMP_DIR
 os.environ["TMP"] = LOCAL_TEMP_DIR
 tempfile.tempdir = LOCAL_TEMP_DIR
-
-import shutil
-import uuid
-from typing import Optional, List, Any
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 from .models import ReportData
 from .extractor import CaseExtractor
@@ -31,7 +30,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 
-app = FastAPI(title="BankTech Valuation OCR & Dynamic Excel Engine", version="2.0.0")
+app = FastAPI(title="BankTech Valuation OCR & Dynamic Excel Engine", version="2.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,6 +51,16 @@ class FolderProcessRequest(BaseModel):
     session_id: Optional[str] = "default_session"
     api_key: Optional[str] = None
     model_name: Optional[str] = None
+
+class SingleFileProcessRequest(BaseModel):
+    file_path: str
+    session_id: Optional[str] = "default_session"
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+
+class RemoveFileRequest(BaseModel):
+    file_path: str
+    session_id: Optional[str] = "default_session"
 
 class SettingsRequest(BaseModel):
     gemini_api_key: str
@@ -118,7 +127,7 @@ async def upload_session_files(
     api_key: Optional[str] = Form(None)
 ):
     """
-    Ingests 1 or more files (PDF, DOCX, JPG, PNG, CSV, ZIP) incrementally into session.
+    Ingests 1 or more files (PDF, DOCX, JPG, PNG, CSV, ZIP, XLSX) incrementally into session.
     Extracts text, performs OCR, updates report data, and returns live filled spreadsheet grid.
     """
     session = get_session(session_id)
@@ -139,13 +148,36 @@ async def upload_session_files(
     )
     return res
 
+@app.post("/api/session/process-file")
+def process_single_file_endpoint(req: SingleFileProcessRequest):
+    """
+    Processes an individual file in the session, extracts data, and merges into live spreadsheet.
+    """
+    session = get_session(req.session_id)
+    active_api_key = req.api_key or SERVER_CONFIG["gemini_api_key"]
+    return session.process_single_file(
+        req.file_path,
+        api_key=active_api_key,
+        model_name=req.model_name or SERVER_CONFIG["model_name"]
+    )
+
+@app.post("/api/session/remove-file")
+def remove_session_file(req: RemoveFileRequest):
+    """Removes a file from the session."""
+    session = get_session(req.session_id)
+    return session.remove_file(req.file_path)
+
 @app.get("/api/session/live-grid")
-def get_live_grid(session_id: Optional[str] = Query("default_session")):
+def get_live_grid(
+    session_id: Optional[str] = Query("default_session"),
+    sheet: Optional[str] = Query("0")
+):
     """Returns the live populated spreadsheet grid JSON for the interactive web viewer."""
     session = get_session(session_id)
+    sheet_val: Union[int, str] = int(sheet) if sheet.isdigit() else sheet
     return {
         "success": True,
-        "grid": session.get_live_grid_preview(),
+        "grid": session.get_live_grid_preview(sheet=sheet_val),
         "report_data": session.report_data.dict(),
         "files": session.uploaded_files
     }
@@ -206,7 +238,7 @@ def download_session_excel(session_id: Optional[str] = Query("default_session"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Excel Generation Failed: {str(e)}")
 
-# ----------------- Legacy Compatibility Endpoints ----------------- #
+# ----------------- Direct Folder Ingestion ----------------- #
 
 @app.post("/api/process-folder")
 def process_folder(req: FolderProcessRequest):
@@ -218,11 +250,10 @@ def process_folder(req: FolderProcessRequest):
         raise HTTPException(status_code=404, detail=f"Folder path not found: {folder_path}")
 
     session = get_session(req.session_id)
-    # Copy files from folder to session
     saved_files = []
     for root, _, files in os.walk(folder_path):
-        for f in files:
-            if not f.startswith("~$") and not f.startswith("."):
+        for f in sorted(files):
+            if not f.startswith("~$") and not f.startswith(".") and not "__MACOSX" in root:
                 src = os.path.join(root, f)
                 dst = os.path.join(session.docs_dir, f)
                 shutil.copyfile(src, dst)
@@ -238,6 +269,7 @@ def process_folder(req: FolderProcessRequest):
         "success": True,
         "data": res["report_data"],
         "source_folder": folder_path,
+        "files": res["files"],
         "grid": res["grid"]
     }
 
@@ -266,22 +298,6 @@ def generate_excel(report: ReportData):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Excel Generation Failed: {str(e)}")
-
-@app.get("/api/download-excel/{filename}")
-def download_excel(filename: str):
-    file_path = os.path.join(OUTPUT_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Requested report file not found.")
-    headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"',
-        "Access-Control-Expose-Headers": "Content-Disposition"
-    }
-    return FileResponse(
-        file_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=filename,
-        headers=headers
-    )
 
 @app.get("/api/view-file")
 def view_case_file(filepath: str):

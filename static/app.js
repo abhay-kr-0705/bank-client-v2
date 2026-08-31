@@ -1,5 +1,5 @@
 /**
- * BankTech Valuation OCR & Dynamic Excel Spreadsheet Engine
+ * BankTech Valuation OCR & Dynamic Real-Time Excel Spreadsheet Engine
  * Frontend Interactive Controller
  */
 
@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentGridData = null;
   let activeFiles = [];
   let selectedCellCoord = "A1";
+  let currentActiveSheet = 0;
 
   const defaultFloorNames = [
     "Basement", "Stilt Floor", "Ground Floor", "First Floor",
@@ -24,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSettingsModal = document.getElementById('btnSettingsModal');
   const btnDownloadReport = document.getElementById('btnDownloadReport');
   const btnGenerateExcel = document.getElementById('btnGenerateExcel');
-  const btnExportJson = document.getElementById('btnExportJson');
+  const btnSyncFormToGrid = document.getElementById('btnSyncFormToGrid');
   
   // Template Management
   const btnUploadTemplate = document.getElementById('btnUploadTemplate');
@@ -51,12 +52,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const pipelineProgressBar = document.getElementById('pipelineProgressBar');
   const filesListContainer = document.getElementById('filesListContainer');
   const filesCountBadge = document.getElementById('filesCountBadge');
+  const fileFilterInput = document.getElementById('fileFilterInput');
+  const btnProcessAllFiles = document.getElementById('btnProcessAllFiles');
   const casePillBadge = document.getElementById('casePillBadge');
 
   // Spreadsheet Grid Elements
   const spreadsheetViewport = document.getElementById('spreadsheetViewport');
   const activeCellCoord = document.getElementById('activeCellCoord');
   const formulaBarInput = document.getElementById('formulaBarInput');
+  const sheetTabsContainer = document.getElementById('sheetTabsContainer');
+  const btnSheet1 = document.getElementById('btnSheet1');
+  const btnSheet2 = document.getElementById('btnSheet2');
 
   // Document Preview Elements
   const docPreviewWrapper = document.getElementById('docPreviewWrapper');
@@ -77,7 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Floor Table Body
   const floorsTableBody = document.getElementById('floorsTableBody');
 
-  // Initialize
+  // Initialize Application
   initTheme();
   initFloorTable();
   initTabs();
@@ -125,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
         engineStatusText.textContent = `Local Dynamic Hybrid OCR Active`;
       }
     } catch (e) {
-      console.warn("Backend not connected yet:", e);
+      console.warn("Backend connection pending:", e);
     }
   }
 
@@ -151,17 +157,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 3. Load Initial Grid State
-  async function loadInitialGridState() {
+  async function loadInitialGridState(sheet = 0) {
+    currentActiveSheet = sheet;
     try {
-      const res = await fetch(`/api/session/live-grid?session_id=${currentSessionId}`);
+      const res = await fetch(`/api/session/live-grid?session_id=${currentSessionId}&sheet=${sheet}`);
       const data = await res.json();
       if (data.success && data.grid) {
         currentGridData = data.grid;
         renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+        updateSheetTabs(data.grid.all_sheets || ['Sheet1', 'Sheet2'], sheet);
       }
     } catch (e) {
       console.error("Initial grid load error:", e);
     }
+  }
+
+  // Update Sheet Switcher Tabs
+  function updateSheetTabs(sheetNames, activeIdx) {
+    if (!sheetTabsContainer) return;
+    sheetTabsContainer.innerHTML = '';
+    sheetNames.forEach((name, idx) => {
+      const btn = document.createElement('button');
+      btn.className = `sheet-tab ${idx === activeIdx || name === activeIdx ? 'active' : ''}`;
+      btn.innerHTML = `<i class="fa-regular fa-file-lines"></i> ${name}`;
+      btn.addEventListener('click', () => {
+        loadInitialGridState(idx);
+      });
+      sheetTabsContainer.appendChild(btn);
+    });
   }
 
   // 4. Interactive Spreadsheet Grid Renderer
@@ -173,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const table = document.createElement('table');
     table.className = 'excel-grid-table';
+    table.tabIndex = 0; // Make table focusable for keyboard navigation
 
     // 1. Column Header Row (Corner + A, B, C, D...)
     const thead = document.createElement('thead');
@@ -210,11 +234,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const td = document.createElement('td');
         td.id = `cell_${cellObj.coord}`;
         td.setAttribute('data-coord', cellObj.coord);
+        td.setAttribute('data-row', cellObj.row);
+        td.setAttribute('data-col', cellObj.col);
+        td.setAttribute('data-val', cellObj.value || '');
 
         let cellClass = 'grid-data-cell';
         if (cellObj.is_header) cellClass += ' grid-header-cell';
         if (cellObj.is_formula) cellClass += ' grid-formula-cell';
         if (cellObj.coord === selectedCellCoord) cellClass += ' cell-selected';
+        if (cellObj.fill_color) {
+          td.style.backgroundColor = `#${cellObj.fill_color.slice(-6)}`;
+        }
         td.className = cellClass;
 
         td.textContent = cellObj.value || '';
@@ -245,14 +275,127 @@ document.addEventListener('DOMContentLoaded', () => {
     if (statsElem) {
       statsElem.textContent = `${gridData.max_row} Rows • ${gridData.max_col} Columns • Formula Engine Active`;
     }
+
+    // Keyboard Navigation for Excel Grid
+    initGridKeyboardNavigation(table, gridData, container, isEditable);
+  }
+
+  // Keyboard navigation (Arrow keys, Enter, Tab, F2)
+  function initGridKeyboardNavigation(table, gridData, container, isEditable) {
+    table.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+      const currentTd = document.getElementById(`cell_${selectedCellCoord}`);
+      if (!currentTd) return;
+
+      const currRow = parseInt(currentTd.getAttribute('data-row') || '1');
+      const currCol = parseInt(currentTd.getAttribute('data-col') || '1');
+      let targetRow = currRow;
+      let targetCol = currCol;
+
+      if (e.key === 'ArrowUp') {
+        targetRow = Math.max(1, currRow - 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        targetRow = Math.min(gridData.max_row, currRow + 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowLeft') {
+        targetCol = Math.max(1, currCol - 1);
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight' || e.key === 'Tab') {
+        targetCol = Math.min(gridData.max_col, currCol + 1);
+        e.preventDefault();
+      } else if (e.key === 'Enter') {
+        targetRow = Math.min(gridData.max_row, currRow + 1);
+        e.preventDefault();
+      } else if (e.key === 'F2' && isEditable) {
+        makeCellEditable(currentTd, selectedCellCoord);
+        e.preventDefault();
+        return;
+      }
+
+      if (targetRow !== currRow || targetCol !== currCol) {
+        const colLetter = getColLetter(targetCol);
+        const nextCoord = `${colLetter}${targetRow}`;
+        const nextTd = document.getElementById(`cell_${nextCoord}`);
+        if (nextTd) {
+          selectCell(nextCoord, nextTd.textContent || '', nextTd, container);
+          nextTd.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
+      }
+    });
+  }
+
+  function getColLetter(colIdx) {
+    let temp, letter = '';
+    while (colIdx > 0) {
+      temp = (colIdx - 1) % 26;
+      letter = String.fromCharCode(temp + 65) + letter;
+      colIdx = (colIdx - temp - 1) / 26;
+    }
+    return letter;
+  }
+
+  function selectCell(coord, val, tdElem, container) {
+    selectedCellCoord = coord;
+    activeCellCoord.textContent = coord;
+    formulaBarInput.value = val;
+
+    container.querySelectorAll('.excel-grid-table td').forEach(td => td.classList.remove('cell-selected'));
+    if (tdElem) tdElem.classList.add('cell-selected');
+  }
+
+  function makeCellEditable(td, coord) {
+    const currentVal = td.textContent;
+    td.innerHTML = `<input type="text" class="grid-inline-input" value="${currentVal.replace(/"/g, '&quot;')}">`;
+    const input = td.querySelector('input');
+    input.focus();
+    input.select();
+
+    const commitChange = async () => {
+      const newVal = input.value;
+      td.textContent = newVal;
+      formulaBarInput.value = newVal;
+      await syncCellUpdate(coord, newVal);
+    };
+
+    input.addEventListener('blur', commitChange);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        input.blur();
+      } else if (e.key === 'Escape') {
+        td.textContent = currentVal;
+      }
+    });
+  }
+
+  // Formula Bar Realtime Input
+  formulaBarInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && selectedCellCoord) {
+      const newVal = formulaBarInput.value;
+      const td = document.getElementById(`cell_${selectedCellCoord}`);
+      if (td) td.textContent = newVal;
+      await syncCellUpdate(selectedCellCoord, newVal);
+      showToast(`Cell ${selectedCellCoord} updated`, 'info');
+    }
+  });
+
+  async function syncCellUpdate(coord, val) {
+    try {
+      await fetch('/api/session/update-cell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: currentSessionId, coordinate: coord, value: val })
+      });
+    } catch (e) {
+      console.error("Cell update error:", e);
+    }
   }
 
   // Grid Modification Actions: Add Row, Add Col, Clear Data
   const btnAddGridRow = document.getElementById('btnAddGridRow');
   const btnAddGridCol = document.getElementById('btnAddGridCol');
   const btnClearGridData = document.getElementById('btnClearGridData');
-  const btnSheet1 = document.getElementById('btnSheet1');
-  const btnSheet2 = document.getElementById('btnSheet2');
 
   if (btnAddGridRow) {
     btnAddGridRow.addEventListener('click', async () => {
@@ -307,20 +450,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  if (btnSheet1 && btnSheet2) {
-    btnSheet1.addEventListener('click', () => {
-      btnSheet1.classList.add('active');
-      btnSheet2.classList.remove('active');
-      if (currentGridData) renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
-    });
-
-    btnSheet2.addEventListener('click', () => {
-      btnSheet2.classList.add('active');
-      btnSheet1.classList.remove('active');
-      showToast('Sheet2 displays predefined bank validation dropdown lists.', 'info');
-    });
-  }
-
   // Collapsible Ingestion Deck
   const btnToggleIngestDeck = document.getElementById('btnToggleIngestDeck');
   const toggleIngestIcon = document.getElementById('toggleIngestIcon');
@@ -350,60 +479,6 @@ document.addEventListener('DOMContentLoaded', () => {
       if (expandGridText) expandGridText.textContent = isExpanded ? 'Restore View' : 'Expand View';
       showToast(isExpanded ? 'Spreadsheet expanded to full workspace' : 'Workspace layout restored', 'info');
     });
-  }
-
-  function selectCell(coord, val, tdElem, container) {
-    selectedCellCoord = coord;
-    activeCellCoord.textContent = coord;
-    formulaBarInput.value = val;
-
-    container.querySelectorAll('.excel-grid-table td').forEach(td => td.classList.remove('cell-selected'));
-    if (tdElem) tdElem.classList.add('cell-selected');
-  }
-
-  function makeCellEditable(td, coord) {
-    const currentVal = td.textContent;
-    td.innerHTML = `<input type="text" class="form-control text-xs p-1" value="${currentVal}">`;
-    const input = td.querySelector('input');
-    input.focus();
-    input.select();
-
-    const commitChange = async () => {
-      const newVal = input.value;
-      td.textContent = newVal;
-      formulaBarInput.value = newVal;
-      await syncCellUpdate(coord, newVal);
-    };
-
-    input.addEventListener('blur', commitChange);
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        input.blur();
-      }
-    });
-  }
-
-  // Formula Bar Realtime Input
-  formulaBarInput.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && selectedCellCoord) {
-      const newVal = formulaBarInput.value;
-      const td = document.getElementById(`cell_${selectedCellCoord}`);
-      if (td) td.textContent = newVal;
-      await syncCellUpdate(selectedCellCoord, newVal);
-      showToast(`Cell ${selectedCellCoord} updated`, 'info');
-    }
-  });
-
-  async function syncCellUpdate(coord, val) {
-    try {
-      await fetch('/api/session/update-cell', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: currentSessionId, coordinate: coord, value: val })
-      });
-    } catch (e) {
-      console.error("Cell update error:", e);
-    }
   }
 
   // 5. Template Management (Upload, Preview Blank, Reset)
@@ -530,7 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
       currentGridData = result.grid;
       
       populateFormWithData(currentReportData);
-      renderFilesList(currentReportData.raw_files_summary || []);
+      renderFilesList(result.files || currentReportData.raw_files_summary || []);
       renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
       
       btnDownloadReport.disabled = false;
@@ -538,6 +613,55 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
       showToast(`Error: ${e.message}`, 'error');
       console.error(e);
+    }
+  }
+
+  // Single-File Force Extraction Endpoint Call
+  async function processSingleFile(filePath, fileName) {
+    showToast(`Force extracting from: ${fileName}...`, 'info');
+    try {
+      const res = await fetch('/api/session/process-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: filePath, session_id: currentSessionId })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'File extraction failed');
+      }
+
+      const result = await res.json();
+      currentReportData = result.report_data;
+      currentGridData = result.grid;
+      
+      populateFormWithData(currentReportData);
+      renderFilesList(result.files || []);
+      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+      
+      btnDownloadReport.disabled = false;
+      showToast(`Extracted data from ${fileName} & updated live grid!`, 'success');
+    } catch (e) {
+      showToast(`File Extraction Error: ${e.message}`, 'error');
+    }
+  }
+
+  // Remove File from Session
+  async function removeSessionFile(filePath, fileName) {
+    if (!confirm(`Remove ${fileName} from active session?`)) return;
+    try {
+      const res = await fetch('/api/session/remove-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: filePath, session_id: currentSessionId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        renderFilesList(data.files || []);
+        showToast(`${fileName} removed from session.`, 'info');
+      }
+    } catch (e) {
+      showToast(`Failed to remove file`, 'error');
     }
   }
 
@@ -575,7 +699,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 1400);
   }
 
-  // 8. Render Files List in Left Pane
+  // 8. Render Files List in Left Pane with Granular Action Controls
   function renderFilesList(files) {
     activeFiles = files;
     filesCountBadge.textContent = files.length;
@@ -585,36 +709,95 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="empty-state-card">
           <i class="fa-regular fa-folder-open"></i>
           <p>No documents found in session.</p>
+          <span class="text-xs text-muted">Upload files, folders, or ZIP archives above</span>
         </div>`;
       return;
     }
 
     filesListContainer.innerHTML = '';
+    const filterQuery = (fileFilterInput?.value || '').toLowerCase().trim();
+
     files.forEach(file => {
+      if (filterQuery && !file.filename.toLowerCase().includes(filterQuery)) return;
+
       const div = document.createElement('div');
       div.className = 'file-item';
       
       let icon = 'fa-solid fa-file';
-      const ext = (file.type || '').replace('.', '');
-      if (['jpg', 'jpeg', 'png', 'webp', 'site_photo'].includes(ext)) icon = 'fa-solid fa-file-image text-warning';
+      const ext = (file.type || '').replace('.', '').toLowerCase();
+      if (['jpg', 'jpeg', 'png', 'webp', 'site_photo', 'bmp', 'tiff'].includes(ext)) icon = 'fa-solid fa-file-image text-warning';
       else if (['pdf', 'property_pdf'].includes(ext)) icon = 'fa-solid fa-file-pdf text-danger';
       else if (['docx', 'doc', 'field_notes_docx'].includes(ext)) icon = 'fa-solid fa-file-word text-accent';
-      else if (['xlsx', 'csv', 'excel'].includes(ext)) icon = 'fa-solid fa-file-excel text-success';
+      else if (['xlsx', 'csv', 'excel', 'target_excel_template'].includes(ext)) icon = 'fa-solid fa-file-excel text-success';
       else if (['zip'].includes(ext)) icon = 'fa-solid fa-file-zipper text-warning';
 
+      const status = file.status || 'Ready';
+      let statusBadgeClass = 'badge-ready';
+      if (status === 'Processed') statusBadgeClass = 'badge-processed';
+      if (status === 'Updated') statusBadgeClass = 'badge-updated';
+
       div.innerHTML = `
-        <div class="file-info">
+        <div class="file-info-group">
           <i class="${icon} file-icon"></i>
-          <div>
+          <div class="file-details">
             <div class="file-name truncate" title="${file.filename}">${file.filename}</div>
-            <div class="file-size">${file.size_display || ''} &bull; ${file.type || 'document'}</div>
+            <div class="file-subtext">
+              <span>${file.size_display || ''}</span> &bull; 
+              <span class="file-status-badge ${statusBadgeClass}">${status}</span>
+            </div>
           </div>
         </div>
-        <button class="btn-icon" title="Preview document"><i class="fa-regular fa-eye"></i></button>
+        <div class="file-actions-btn-group">
+          <button class="btn-action-sm btn-extract" title="Extract / Re-extract this document only">
+            <i class="fa-solid fa-bolt"></i> Extract
+          </button>
+          <button class="btn-action-sm btn-preview" title="Preview document">
+            <i class="fa-solid fa-eye"></i>
+          </button>
+          <button class="btn-action-sm btn-delete" title="Remove from session">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
       `;
+
+      // Extract this file button
+      const extractBtn = div.querySelector('.btn-extract');
+      extractBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        processSingleFile(file.path, file.filename);
+      });
+
+      // Preview button
+      const previewBtn = div.querySelector('.btn-preview');
+      previewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        previewFile(file);
+      });
+
+      // Delete button
+      const deleteBtn = div.querySelector('.btn-delete');
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeSessionFile(file.path, file.filename);
+      });
 
       div.addEventListener('click', () => previewFile(file));
       filesListContainer.appendChild(div);
+    });
+  }
+
+  // Filter input event
+  if (fileFilterInput) {
+    fileFilterInput.addEventListener('input', () => {
+      renderFilesList(activeFiles);
+    });
+  }
+
+  // Process all files button
+  if (btnProcessAllFiles) {
+    btnProcessAllFiles.addEventListener('click', () => {
+      const path = folderPathInput.value || "d:\\ABHAY VICKY\\Banking client project\\SUNITA DEVI BACHHAN KUMAR";
+      processFolderPath(path);
     });
   }
 
@@ -627,7 +810,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ext = file.filename.split('.').pop().toLowerCase();
     const fileUrl = `/api/view-file?filepath=${encodeURIComponent(file.path)}`;
 
-    if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+    if (['jpg', 'jpeg', 'png', 'webp', 'bmp'].includes(ext)) {
       previewBody.innerHTML = `<img src="${fileUrl}" alt="${file.filename}">`;
     } else if (ext === 'pdf') {
       previewBody.innerHTML = `<iframe src="${fileUrl}#toolbar=0"></iframe>`;
@@ -700,19 +883,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_adopted_land_area_sqft').value = l.adopted_land_area_sqft || 569.7;
     document.getElementById('inp_per_unit_land_rate').value = l.per_unit_land_rate || 0;
 
-    // Solar & Roof
-    const s = data.solar_roof_vicinity || {};
-    document.getElementById('inp_solar_install_location').value = s.solar_install_location ? s.solar_install_location.trim() : "Ground";
-    document.getElementById('inp_roof_length_sqft').value = s.roof_length_sqft || 15;
-    document.getElementById('inp_roof_breadth_sqft').value = s.roof_breadth_sqft || 38;
-    document.getElementById('inp_shadow_free_roof_sqft').value = s.shadow_free_roof_sqft || 0;
-    document.getElementById('inp_parapet_wall_height').value = s.parapet_wall_height || 0;
-    document.getElementById('inp_cracks_in_roof').value = s.cracks_in_roof || 0;
-    document.getElementById('inp_is_outreach').value = s.is_outreach || "No";
-    document.getElementById('inp_population_1km').value = s.population_1km || "Above 5000";
-    document.getElementById('inp_primary_schools_1km').value = s.primary_schools_1km || 1;
-    document.getElementById('inp_secondary_schools_1km').value = s.secondary_schools_1km || 1;
-
     // Floors Table
     const f = data.construction_floors || {};
     initFloorTable(f.floors);
@@ -720,31 +890,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_total_property_value').value = f.total_property_value || 0;
     recalculateFloorTotals();
 
-    // Accommodation
-    const acc = data.accommodation || {};
-    document.getElementById('inp_no_of_floors').value = acc.no_of_floors || 5;
-    document.getElementById('inp_toilet_available').value = acc.toilet_available ? acc.toilet_available.trim() : "Yes";
-    document.getElementById('inp_no_of_lifts').value = acc.no_of_lifts || 0;
-    document.getElementById('inp_apartments_per_floor').value = acc.apartments_per_floor || 1;
-    document.getElementById('inp_electricity_meter_installed').value = acc.electricity_meter_installed ? acc.electricity_meter_installed.trim() : "Yes";
-    document.getElementById('inp_electricity_meter_number').value = acc.electricity_meter_number || "NA";
-
     // Legal Checks
     const leg = data.legal_checks || {};
     document.getElementById('inp_documents_name').value = leg.documents_name || "Other";
-    document.getElementById('inp_person_met').value = leg.person_met || "Mr. Gauarv";
+    document.getElementById('inp_person_met').value = leg.person_met || "Mr. Gaurav";
     document.getElementById('inp_relation_with_owner').value = leg.relation_with_owner || "Applicant's Son";
     document.getElementById('inp_property_situated_at').value = leg.property_situated_at ? leg.property_situated_at.trim() : "MC";
     document.getElementById('inp_is_sanction_plan_compliant').value = leg.is_sanction_plan_compliant || "No";
     document.getElementById('inp_pathway_clear').value = leg.pathway_clear || "Yes";
-    document.getElementById('inp_is_disaster_prone').value = leg.is_disaster_prone || "No";
     document.getElementById('inp_approach_by_public_road').value = leg.approach_by_public_road ? leg.approach_by_public_road.trim() : "Yes";
     document.getElementById('inp_width_of_public_road').value = leg.width_of_public_road || "23 Ft Wide";
-    document.getElementById('inp_utilities_in_vicinity').value = leg.utilities_in_vicinity || "Yes";
-    document.getElementById('inp_approved_land_master_plan').value = leg.approved_land_master_plan || "Residential";
     document.getElementById('inp_current_uses').value = leg.current_uses || "Residential";
     document.getElementById('inp_opinion_about_report').value = leg.opinion_about_report ? leg.opinion_about_report.trim() : "Negative";
     document.getElementById('inp_occupancy_250m').value = leg.occupancy_250m || "80%-90%";
+    document.getElementById('inp_tentative_rent').value = leg.tentative_rent || "";
     document.getElementById('inp_development_250m').value = leg.development_250m || "80%-90%";
     document.getElementById('inp_property_limit').value = leg.property_limit || "Within MC Limit";
     document.getElementById('inp_adm').value = leg.adm || "Average";
@@ -757,6 +916,90 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Remarks
     document.getElementById('inp_remarks').value = data.remarks || "";
+  }
+
+  // Sync Form to Grid Action
+  if (btnSyncFormToGrid) {
+    btnSyncFormToGrid.addEventListener('click', async () => {
+      showToast('Syncing form values to live grid...', 'info');
+      
+      const payload = {
+        session_id: currentSessionId,
+        header: {
+          report_title: document.getElementById('inp_report_title').value,
+          application_id: document.getElementById('inp_application_id').value,
+          applicant_name: document.getElementById('inp_applicant_name').value,
+          property_type: document.getElementById('inp_property_type').value,
+          completion_percent: parseFloat(document.getElementById('inp_completion_percent').value || 1.0),
+          structure_type: document.getElementById('inp_structure_type').value,
+          age_of_property: document.getElementById('inp_age_of_property').value,
+          dwelling_units_owned: parseInt(document.getElementById('inp_dwelling_units_owned').value || 1),
+          geo_tag: document.getElementById('inp_geo_tag').value
+        },
+        address: {
+          street_name: document.getElementById('inp_street_name').value,
+          nearest_landmark: document.getElementById('inp_nearest_landmark').value,
+          village_name: document.getElementById('inp_village_name').value,
+          city: document.getElementById('inp_city').value,
+          plot_house_khasra: document.getElementById('inp_plot_house_khasra').value,
+          floor_number: document.getElementById('inp_floor_number').value,
+          colony_name: document.getElementById('inp_colony_name').value,
+          address_site: document.getElementById('inp_address_site').value,
+          address_docs: document.getElementById('inp_address_docs').value,
+          pincode: document.getElementById('inp_pincode').value,
+          district: document.getElementById('inp_district').value
+        },
+        boundaries: {
+          site_east: document.getElementById('inp_site_east').value,
+          site_west: document.getElementById('inp_site_west').value,
+          site_north: document.getElementById('inp_site_north').value,
+          site_south: document.getElementById('inp_site_south').value,
+          deed_east: document.getElementById('inp_deed_east').value,
+          deed_west: document.getElementById('inp_deed_west').value,
+          deed_north: document.getElementById('inp_deed_north').value,
+          deed_south: document.getElementById('inp_deed_south').value,
+          boundary_matching: document.getElementById('inp_boundary_matching').value,
+          mismatch_remarks: document.getElementById('inp_mismatch_remarks').value,
+          occupancy_status: document.getElementById('inp_occupancy_status').value
+        },
+        land_measurements: {
+          land_length: parseFloat(document.getElementById('inp_land_length').value || 38),
+          land_breadth: parseFloat(document.getElementById('inp_land_breadth').value || 15),
+          land_area_site_sqft: document.getElementById('inp_land_area_site_sqft').value,
+          adopted_land_area_sqft: parseFloat(document.getElementById('inp_adopted_land_area_sqft').value || 569.7),
+          per_unit_land_rate: parseFloat(document.getElementById('inp_per_unit_land_rate').value || 0),
+          total_land_value: "=B46*B47"
+        },
+        legal_checks: {
+          documents_name: document.getElementById('inp_documents_name').value,
+          person_met: document.getElementById('inp_person_met').value,
+          relation_with_owner: document.getElementById('inp_relation_with_owner').value,
+          property_situated_at: document.getElementById('inp_property_situated_at').value,
+          is_sanction_plan_compliant: document.getElementById('inp_is_sanction_plan_compliant').value,
+          pathway_clear: document.getElementById('inp_pathway_clear').value,
+          approach_by_public_road: document.getElementById('inp_approach_by_public_road').value,
+          width_of_public_road: document.getElementById('inp_width_of_public_road').value,
+          current_uses: document.getElementById('inp_current_uses').value,
+          opinion_about_report: document.getElementById('inp_opinion_about_report').value,
+          occupancy_250m: document.getElementById('inp_occupancy_250m').value,
+          tentative_rent: document.getElementById('inp_tentative_rent').value,
+          development_250m: document.getElementById('inp_development_250m').value,
+          property_limit: document.getElementById('inp_property_limit').value,
+          adm: document.getElementById('inp_adm').value
+        },
+        reference: {
+          reference_name: document.getElementById('inp_reference_name').value,
+          reference_mobile: document.getElementById('inp_reference_mobile').value,
+          feedback: document.getElementById('inp_feedback').value
+        },
+        remarks: document.getElementById('inp_remarks').value
+      };
+
+      currentReportData = payload;
+      // Reload live grid
+      loadInitialGridState(currentActiveSheet);
+      showToast('Form synced to live spreadsheet grid!', 'success');
+    });
   }
 
   // 11. Floors Table Init

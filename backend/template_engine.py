@@ -2,12 +2,13 @@ import os
 import re
 import openpyxl
 from openpyxl.utils import get_column_letter
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Union
 
 class TemplateEngine:
     """
     Intelligently analyzes, sanitizes, and maps arbitrary Excel templates.
     Preserves all headers, labels, formulas, merged cells, borders, fonts, and Sheet2 dropdowns.
+    Supports multi-sheet grid export.
     """
 
     KNOWN_LABELS = {
@@ -19,7 +20,9 @@ class TemplateEngine:
         "east", "west", "north", "south", "boundary matching", "mismatch remarks", "occupancy",
         "length", "breadth", "land area", "adopted land area", "per unit land rate", "total land value",
         "solar", "roof", "cracks", "parapet", "no. of floor", "toilet", "lift", "electricity",
-        "person meet", "relation", "sanction plan", "public road", "opinion", "remarks"
+        "person meet", "relation", "sanction plan", "public road", "opinion", "remarks",
+        "floors", "basement", "stilt", "ground floor", "first floor", "second floor",
+        "third floor", "fourth floor", "fifth floor", "six floor", "seven floor"
     }
 
     def __init__(self, template_path: str):
@@ -43,9 +46,9 @@ class TemplateEngine:
             return False
 
         if self.is_formula(str_val):
-            return False  # Formulas are computation cells
+            return False
 
-        # Section titles or row 1 headers
+        # Row 1 header or title
         if row_idx == 1:
             return True
 
@@ -56,16 +59,21 @@ class TemplateEngine:
 
         # Columns A and C in standard valuation templates are almost always label columns
         if col_idx in [1, 3] and not str_val.replace('.', '', 1).isdigit():
-            # If length is reasonable for a label
-            if len(str_val) < 80:
+            if len(str_val) < 85:
                 return True
 
         return False
 
+    def get_sheet_names(self) -> List[str]:
+        wb = openpyxl.load_workbook(self.template_path, read_only=True)
+        names = wb.sheetnames
+        wb.close()
+        return names
+
     def sanitize_template(self, output_sanitized_path: str) -> Dict[str, Any]:
         """
         Creates a clean copy of the template where data cells are blanked out,
-        while strictly preserving all headers, formulas, styles, and validations.
+        while strictly preserving all headers, formulas, styles, and validations across all sheets.
         """
         wb = openpyxl.load_workbook(self.template_path, data_only=False)
         sheet_names = wb.sheetnames
@@ -126,21 +134,35 @@ class TemplateEngine:
             "sanitized_file": output_sanitized_path
         }
 
-    def export_grid_json(self, filled_values: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def export_grid_json(
+        self,
+        sheet: Union[str, int] = 0,
+        filled_values: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Generates full grid representation for in-browser spreadsheet rendering.
-        Includes cell values, computed formulas preview, merged cells, and styles.
+        Generates full grid representation for in-browser spreadsheet rendering for a given sheet.
+        Includes cell values, formulas, merged cells, headers, and colors.
         """
         wb = openpyxl.load_workbook(self.template_path, data_only=False)
-        ws = wb.active
+        sheet_names = wb.sheetnames
+
+        if isinstance(sheet, int):
+            target_idx = max(0, min(sheet, len(sheet_names) - 1))
+            ws = wb[sheet_names[target_idx]]
+        else:
+            ws = wb[sheet] if sheet in wb else wb.active
 
         # Extract merged ranges
         merged_ranges = [str(rng) for rng in ws.merged_cells.ranges]
 
+        # Determine effective row/col counts
+        max_r = max(ws.max_row, 1)
+        max_c = max(ws.max_column, 4)
+
         rows_data = []
-        for r in range(1, ws.max_row + 1):
+        for r in range(1, max_r + 1):
             cols_data = []
-            for c in range(1, ws.max_column + 1):
+            for c in range(1, max_c + 1):
                 cell = ws.cell(row=r, column=c)
                 coord = cell.coordinate
                 raw_val = cell.value
@@ -159,7 +181,6 @@ class TemplateEngine:
                     else:
                         display_val = str(raw_val)
 
-                # Determine cell role
                 is_lbl = self.is_header_or_label(raw_val, c, r)
 
                 cols_data.append({
@@ -167,20 +188,23 @@ class TemplateEngine:
                     "col_letter": get_column_letter(c),
                     "row": r,
                     "coord": coord,
-                    "value": display_val,
+                    "value": str(display_val) if display_val is not None else "",
                     "is_formula": is_formula_cell,
                     "formula": formula_str,
                     "is_header": is_lbl or (r == 1),
                     "is_bold": bool(cell.font and cell.font.bold),
-                    "fill_color": cell.fill.start_color.rgb if cell.fill and cell.fill.start_color else None
+                    "fill_color": cell.fill.start_color.rgb if (cell.fill and cell.fill.start_color and hasattr(cell.fill.start_color, 'rgb') and isinstance(cell.fill.start_color.rgb, str) and not cell.fill.start_color.rgb.startswith("00000000")) else None
                 })
             rows_data.append({"row": r, "cells": cols_data})
 
+        sheet_title = ws.title
         wb.close()
+
         return {
-            "sheet_name": ws.title,
-            "max_row": ws.max_row,
-            "max_col": ws.max_column,
+            "sheet_name": sheet_title,
+            "all_sheets": sheet_names,
+            "max_row": max_r,
+            "max_col": max_c,
             "merged_ranges": merged_ranges,
             "rows": rows_data
         }

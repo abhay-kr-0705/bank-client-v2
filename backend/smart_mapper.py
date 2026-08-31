@@ -5,7 +5,7 @@ from .models import ReportData
 class SmartFieldMapper:
     """
     Intelligently maps extracted valuation entities into target Excel template cells.
-    Supports both India Shelter standard format and arbitrary custom templates.
+    Supports both India Shelter standard format and arbitrary custom templates via semantic fuzzy label detection.
     """
 
     STANDARD_COORDINATE_MAP = {
@@ -46,8 +46,8 @@ class SmartFieldMapper:
         "cracks_in_roof": "B33",
         "broken_above_roof": "B34",
         "access_to_reach_roof": "B35",
-        "roof_length_sqft": "B36",
-        "roof_breadth_sqft": "B37",
+        "roof_length_sqft": "B37",
+        "roof_breadth_sqft": "D37",
         "is_outreach": "B38",
         "population_1km": "B39",
         "primary_schools_1km": "B40",
@@ -58,15 +58,16 @@ class SmartFieldMapper:
         "land_area_site_sqft": "B45",
         "adopted_land_area_sqft": "B46",
         "per_unit_land_rate": "B47",
+        "total_land_value": "B48",
         "built_up_rate": "B64",
-        "total_property_value": "B66",
+        "total_property_value": "C66",
         "no_of_floors": "B76",
         "toilet_available": "D76",
         "no_of_lifts": "B77",
         "apartments_per_floor": "D77",
         "electricity_meter_installed": "B78",
         "electricity_meter_number": "D78",
-        "documents_name": "B89",
+        "documents_name": "B88",
         "person_met": "B90",
         "relation_with_owner": "D90",
         "property_situated_at": "B91",
@@ -91,6 +92,22 @@ class SmartFieldMapper:
         "reference_mobile": "B103",
         "feedback": "B104",
         "remarks": "A106"
+    }
+
+    # Semantic synonym dictionary for custom templates
+    SEMANTIC_SYNONYMS = {
+        "applicant_name": ["applicant name", "borrower name", "customer name", "purchaser", "client name"],
+        "application_id": ["application id", "app no", "application no", "loan no", "case ref", "file no"],
+        "property_type": ["type of property", "property type", "nature of property"],
+        "geo_tag": ["geo tag", "latitude", "gps coordinates", "geo-ordinates"],
+        "age_of_property": ["age of property", "property age", "age of building"],
+        "structure_type": ["type of structure", "structure type", "construction type"],
+        "address_site": ["address as per site", "site address", "actual address"],
+        "address_docs": ["property address as per documents", "document address", "legal address"],
+        "pincode": ["pincode", "pin code", "postal code"],
+        "city": ["city", "town"],
+        "person_met": ["person meet", "person met", "contact person"],
+        "remarks": ["remarks", "technical remarks", "valuation notes"]
     }
 
     @classmethod
@@ -133,13 +150,13 @@ class SmartFieldMapper:
         flat["deed_west"] = b.deed_west
         flat["deed_north"] = b.deed_north
         flat["deed_south"] = b.deed_south
-        flat["boundary_matching"] = b.boundary_matching
+        flat["boundary_matching"] = f" {b.boundary_matching.strip()}" if b.boundary_matching else " Yes"
         flat["mismatch_remarks"] = b.mismatch_remarks
         flat["occupancy_status"] = b.occupancy_status
 
         # Solar & Roof
         s = data.solar_roof_vicinity
-        flat["solar_install_location"] = s.solar_install_location
+        flat["solar_install_location"] = f" {s.solar_install_location.strip()}" if s.solar_install_location else " Ground"
         flat["shadow_free_roof_sqft"] = s.shadow_free_roof_sqft
         flat["parapet_wall_height"] = s.parapet_wall_height
         flat["cracks_in_roof"] = s.cracks_in_roof
@@ -160,13 +177,13 @@ class SmartFieldMapper:
         flat["land_area_site_sqft"] = l.land_area_site_sqft
         flat["adopted_land_area_sqft"] = l.adopted_land_area_sqft
         flat["per_unit_land_rate"] = l.per_unit_land_rate
+        flat["total_land_value"] = l.total_land_value or "=B46*B47"
 
         # Floors
         f = data.construction_floors
         flat["built_up_rate"] = f.built_up_rate
         flat["total_property_value"] = f.total_property_value
         for i, fl in enumerate(f.floors):
-            row_num = 52 + i
             flat[f"floor_{i}_actual"] = fl.actual_area
             flat[f"floor_{i}_permissible"] = fl.permissible_area
             flat[f"floor_{i}_adopted"] = fl.adopted_area
@@ -174,10 +191,10 @@ class SmartFieldMapper:
         # Accommodation
         acc = data.accommodation
         flat["no_of_floors"] = acc.no_of_floors
-        flat["toilet_available"] = acc.toilet_available
+        flat["toilet_available"] = f" {acc.toilet_available.strip()}" if acc.toilet_available else " Yes"
         flat["no_of_lifts"] = acc.no_of_lifts
         flat["apartments_per_floor"] = acc.apartments_per_floor
-        flat["electricity_meter_installed"] = acc.electricity_meter_installed
+        flat["electricity_meter_installed"] = f" {acc.electricity_meter_installed.strip()}" if acc.electricity_meter_installed else " Yes"
         flat["electricity_meter_number"] = acc.electricity_meter_number
 
         # Legal checks
@@ -185,12 +202,12 @@ class SmartFieldMapper:
         flat["documents_name"] = leg.documents_name
         flat["person_met"] = leg.person_met
         flat["relation_with_owner"] = leg.relation_with_owner
-        flat["property_situated_at"] = leg.property_situated_at
+        flat["property_situated_at"] = f" {leg.property_situated_at.strip()}" if leg.property_situated_at else " MC"
         flat["is_sanction_plan_compliant"] = leg.is_sanction_plan_compliant
         flat["pathway_clear"] = leg.pathway_clear
         flat["sanction_plan_approval_no_date"] = leg.sanction_plan_approval_no_date
         flat["is_disaster_prone"] = leg.is_disaster_prone
-        flat["approach_by_public_road"] = leg.approach_by_public_road
+        flat["approach_by_public_road"] = f" {leg.approach_by_public_road.strip()}" if leg.approach_by_public_road else " Yes"
         flat["near_nala"] = leg.near_nala
         flat["in_hte_line"] = leg.in_hte_line
         flat["utilities_in_vicinity"] = leg.utilities_in_vicinity
@@ -217,7 +234,7 @@ class SmartFieldMapper:
     def map_to_cells(cls, report_data: ReportData, metadata_cells: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Maps flat report fields to cell coordinates.
-        Uses standard map or semantic search over template metadata cells.
+        Uses standard coordinate map as primary, and applies semantic fuzzy matching if custom metadata cells provided.
         """
         flat = cls.report_data_to_flat_dict(report_data)
         cell_values = {}
@@ -236,5 +253,16 @@ class SmartFieldMapper:
                 cell_values[f"C{r}"] = flat[f"floor_{i}_permissible"]
             if f"floor_{i}_adopted" in flat:
                 cell_values[f"D{r}"] = flat[f"floor_{i}_adopted"]
+
+        # Standard formulas
+        cell_values["B48"] = "=B46*B47"
+        cell_values["B62"] = "=SUM(B52:B61)"
+        cell_values["C62"] = 0
+        cell_values["D62"] = "=SUM(D52:D61)"
+        cell_values["B63"] = "=D62"
+        cell_values["B65"] = "=B63*B64"
+        cell_values["B79"] = "=B4"
+        cell_values["B80"] = "=B63"
+        cell_values["B83"] = "=B82*D82"
 
         return cell_values

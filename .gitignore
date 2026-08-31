@@ -38,10 +38,11 @@ venv.bak/
 *.swo
 
 # Temporary uploads & outputs
-uploads/temp/
-uploads/*_*
-outputs/*_Report.xlsx
+uploads/
+outputs/*.xlsx
+!outputs/.gitkeep
 
 # OS
 .DS_Store
 Thumbs.db
+
