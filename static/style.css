@@ -1061,3 +1061,195 @@ input:focus, select:focus, textarea:focus {
   from { transform: translateY(20px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
+
+/* Template Management Deck */
+.template-deck {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+/* Live Spreadsheet Grid Component */
+.grid-card {
+  display: flex;
+  flex-direction: column;
+  height: 640px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.grid-toolbar {
+  padding: 0.6rem 0.8rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+body.light-theme .grid-toolbar {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.cell-coord-badge {
+  background: var(--accent-primary);
+  color: white;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  min-width: 48px;
+  text-align: center;
+}
+
+.formula-input {
+  flex: 1;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.spreadsheet-viewport {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--bg-secondary);
+}
+
+.modal-lg {
+  max-width: 90vw !important;
+  width: 1100px !important;
+}
+
+.modal-viewport {
+  height: 520px;
+}
+
+/* Spreadsheet Table Styling */
+.excel-grid-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+  font-family: 'Inter', sans-serif;
+  user-select: text;
+}
+
+.excel-grid-table th,
+.excel-grid-table td {
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 0.35rem 0.6rem;
+  min-width: 110px;
+  max-width: 320px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  vertical-align: middle;
+}
+
+body.light-theme .excel-grid-table th,
+body.light-theme .excel-grid-table td {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.excel-grid-table th.col-header {
+  position: sticky;
+  top: 0;
+  background: #1e293b;
+  color: #94a3b8;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.75rem;
+  z-index: 10;
+  border-bottom: 2px solid var(--border-color);
+}
+
+body.light-theme .excel-grid-table th.col-header {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.excel-grid-table th.row-header {
+  position: sticky;
+  left: 0;
+  background: #1e293b;
+  color: #94a3b8;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.75rem;
+  min-width: 45px;
+  max-width: 45px;
+  z-index: 5;
+  border-right: 2px solid var(--border-color);
+}
+
+body.light-theme .excel-grid-table th.row-header {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.excel-grid-table th.corner-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  background: #0f172a;
+  z-index: 20;
+}
+
+body.light-theme .excel-grid-table th.corner-header {
+  background: #cbd5e1;
+}
+
+.excel-grid-table td.grid-header-cell {
+  background: rgba(59, 130, 246, 0.08);
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+body.light-theme .excel-grid-table td.grid-header-cell {
+  background: rgba(59, 130, 246, 0.06);
+  color: #1d4ed8;
+}
+
+.excel-grid-table td.grid-formula-cell {
+  background: rgba(16, 185, 129, 0.05);
+  font-family: 'JetBrains Mono', monospace;
+  color: #6ee7b7;
+  font-size: 0.78rem;
+}
+
+body.light-theme .excel-grid-table td.grid-formula-cell {
+  background: rgba(16, 185, 129, 0.08);
+  color: #047857;
+}
+
+.excel-grid-table td.cell-selected {
+  outline: 2px solid var(--accent-primary) !important;
+  background: rgba(59, 130, 246, 0.15) !important;
+}
+
+.excel-grid-table td.grid-data-cell {
+  cursor: pointer;
+}
+
+.excel-grid-table td.grid-data-cell:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+body.light-theme .excel-grid-table td.grid-data-cell:hover {
+  background: rgba(0, 0, 0, 0.02);
+}

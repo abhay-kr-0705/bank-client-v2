@@ -1,13 +1,15 @@
 /**
- * BankTech Valuation OCR & Exact Excel Report Generator
- * Frontend Application Engine
+ * BankTech Valuation OCR & Dynamic Excel Spreadsheet Engine
+ * Frontend Interactive Controller
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Application State
+  // Session State
+  let currentSessionId = "default_session";
   let currentReportData = null;
-  let currentSourceFolder = "";
+  let currentGridData = null;
   let activeFiles = [];
+  let selectedCellCoord = "A1";
 
   const defaultFloorNames = [
     "Basement", "Stilt Floor", "Ground Floor", "First Floor",
@@ -15,7 +17,27 @@ document.addEventListener('DOMContentLoaded', () => {
     "Six Floor", "Seven Floor"
   ];
 
-  // DOM Elements
+  // DOM Elements - Navigation & Actions
+  const btnThemeToggle = document.getElementById('btnThemeToggle');
+  const themeIcon = document.getElementById('themeIcon');
+  const themeText = document.getElementById('themeText');
+  const btnSettingsModal = document.getElementById('btnSettingsModal');
+  const btnDownloadReport = document.getElementById('btnDownloadReport');
+  const btnGenerateExcel = document.getElementById('btnGenerateExcel');
+  const btnExportJson = document.getElementById('btnExportJson');
+  
+  // Template Management
+  const btnUploadTemplate = document.getElementById('btnUploadTemplate');
+  const templateFileInput = document.getElementById('templateFileInput');
+  const btnPreviewCleanTemplate = document.getElementById('btnPreviewCleanTemplate');
+  const btnResetTemplate = document.getElementById('btnResetTemplate');
+  const templateNameText = document.getElementById('templateNameText');
+  const templatePreviewModal = document.getElementById('templatePreviewModal');
+  const btnCloseTemplatePreview = document.getElementById('btnCloseTemplatePreview');
+  const btnConfirmTemplatePreview = document.getElementById('btnConfirmTemplatePreview');
+  const templateModalViewport = document.getElementById('templateModalViewport');
+
+  // Ingestion Elements
   const btnLoadSunitaCase = document.getElementById('btnLoadSunitaCase');
   const btnRunFolderPath = document.getElementById('btnRunFolderPath');
   const folderPathInput = document.getElementById('folderPathInput');
@@ -30,28 +52,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const filesListContainer = document.getElementById('filesListContainer');
   const filesCountBadge = document.getElementById('filesCountBadge');
   const casePillBadge = document.getElementById('casePillBadge');
-  
-  const btnGenerateExcel = document.getElementById('btnGenerateExcel');
-  const btnDownloadReport = document.getElementById('btnDownloadReport');
-  const btnExportJson = document.getElementById('btnExportJson');
 
+  // Spreadsheet Grid Elements
+  const spreadsheetViewport = document.getElementById('spreadsheetViewport');
+  const activeCellCoord = document.getElementById('activeCellCoord');
+  const formulaBarInput = document.getElementById('formulaBarInput');
+
+  // Document Preview Elements
   const docPreviewWrapper = document.getElementById('docPreviewWrapper');
   const previewFileName = document.getElementById('previewFileName');
   const previewBody = document.getElementById('previewBody');
   const btnClosePreview = document.getElementById('btnClosePreview');
 
-  // Settings Modal Elements
-  const btnSettingsModal = document.getElementById('btnSettingsModal');
+  // Settings Modal
   const settingsModal = document.getElementById('settingsModal');
   const btnCloseSettings = document.getElementById('btnCloseSettings');
   const btnCancelSettings = document.getElementById('btnCancelSettings');
   const btnSaveSettings = document.getElementById('btnSaveSettings');
   const modalApiKey = document.getElementById('modalApiKey');
   const modalModelSelect = document.getElementById('modalModelSelect');
-  // Theme Elements
-  const btnThemeToggle = document.getElementById('btnThemeToggle');
-  const themeIcon = document.getElementById('themeIcon');
-  const themeText = document.getElementById('themeText');
+  const engineStatusBadge = document.getElementById('engineStatusBadge');
+  const engineStatusText = document.getElementById('engineStatusText');
 
   // Floor Table Body
   const floorsTableBody = document.getElementById('floorsTableBody');
@@ -61,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initFloorTable();
   initTabs();
   initEventListeners();
+  loadInitialGridState();
   checkBackendHealth();
 
   // 0. Theme Toggle
@@ -100,7 +122,7 @@ document.addEventListener('DOMContentLoaded', () => {
         engineStatusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
         engineStatusBadge.style.color = '#6ee7b7';
       } else {
-        engineStatusText.textContent = `Local High-Accuracy Hybrid OCR Active`;
+        engineStatusText.textContent = `Local Dynamic Hybrid OCR Active`;
       }
     } catch (e) {
       console.warn("Backend not connected yet:", e);
@@ -119,42 +141,297 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetId = tab.getAttribute('data-tab');
         const targetPane = document.getElementById(targetId);
         if (targetPane) targetPane.classList.add('active');
+
+        // If switched to grid tab, refresh view
+        if (targetId === 'tab-grid' && currentGridData) {
+          renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+        }
       });
     });
   }
 
-  // 3. Initialize Default Floors Table
-  function initFloorTable(floorsData = null) {
-    floorsTableBody.innerHTML = '';
-    defaultFloorNames.forEach((name, idx) => {
-      const floor = (floorsData && floorsData[idx]) ? floorsData[idx] : { name, actual_area: 0, permissible_area: 0, adopted_area: 0 };
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="font-bold">${floor.name}</td>
-        <td><input type="number" class="floor-actual" data-idx="${idx}" value="${floor.actual_area}"></td>
-        <td><input type="number" class="floor-permissible" data-idx="${idx}" value="${floor.permissible_area}"></td>
-        <td><input type="number" class="floor-adopted" data-idx="${idx}" value="${floor.adopted_area}"></td>
-      `;
-      floorsTableBody.appendChild(tr);
-    });
-
-    document.querySelectorAll('.floor-actual, .floor-adopted').forEach(input => {
-      input.addEventListener('input', recalculateFloorTotals);
-    });
+  // 3. Load Initial Grid State
+  async function loadInitialGridState() {
+    try {
+      const res = await fetch(`/api/session/live-grid?session_id=${currentSessionId}`);
+      const data = await res.json();
+      if (data.success && data.grid) {
+        currentGridData = data.grid;
+        renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+      }
+    } catch (e) {
+      console.error("Initial grid load error:", e);
+    }
   }
 
-  function recalculateFloorTotals() {
-    let sumActual = 0;
-    let sumAdopted = 0;
-    document.querySelectorAll('.floor-actual').forEach(inp => sumActual += parseFloat(inp.value || 0));
-    document.querySelectorAll('.floor-adopted').forEach(inp => sumAdopted += parseFloat(inp.value || 0));
+  // 4. Interactive Spreadsheet Grid Renderer
+  function renderSpreadsheetGrid(gridData, container, isEditable = true) {
+    if (!gridData || !gridData.rows || gridData.rows.length === 0) {
+      container.innerHTML = `<div class="p-4 text-center text-muted">No grid data available.</div>`;
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'excel-grid-table';
+
+    // 1. Column Header Row (Corner + A, B, C, D...)
+    const thead = document.createElement('thead');
+    const colHeaderRow = document.createElement('tr');
     
-    document.getElementById('totalActualArea').textContent = `=SUM(B52:B61) (${sumActual})`;
-    document.getElementById('totalAdoptedArea').textContent = `=SUM(D52:D61) (${sumAdopted})`;
+    // Corner empty cell
+    const cornerTh = document.createElement('th');
+    cornerTh.className = 'corner-header';
+    cornerTh.textContent = '#';
+    colHeaderRow.appendChild(cornerTh);
+
+    const firstRowCells = gridData.rows[0].cells;
+    firstRowCells.forEach(cell => {
+      const th = document.createElement('th');
+      th.className = 'col-header';
+      th.textContent = cell.col_letter;
+      colHeaderRow.appendChild(th);
+    });
+    thead.appendChild(colHeaderRow);
+    table.appendChild(thead);
+
+    // 2. Data Rows
+    const tbody = document.createElement('tbody');
+    gridData.rows.forEach(rowObj => {
+      const tr = document.createElement('tr');
+
+      // Row Number Header
+      const rowTh = document.createElement('th');
+      rowTh.className = 'row-header';
+      rowTh.textContent = rowObj.row;
+      tr.appendChild(rowTh);
+
+      // Data Cells
+      rowObj.cells.forEach(cellObj => {
+        const td = document.createElement('td');
+        td.id = `cell_${cellObj.coord}`;
+        td.setAttribute('data-coord', cellObj.coord);
+
+        let cellClass = 'grid-data-cell';
+        if (cellObj.is_header) cellClass += ' grid-header-cell';
+        if (cellObj.is_formula) cellClass += ' grid-formula-cell';
+        if (cellObj.coord === selectedCellCoord) cellClass += ' cell-selected';
+        td.className = cellClass;
+
+        td.textContent = cellObj.value || '';
+
+        // Cell Click Handler
+        td.addEventListener('click', () => {
+          selectCell(cellObj.coord, cellObj.value || '', td, container);
+        });
+
+        // Double click for direct in-cell editing
+        if (isEditable) {
+          td.addEventListener('dblclick', () => {
+            makeCellEditable(td, cellObj.coord);
+          });
+        }
+
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    container.innerHTML = '';
+    container.appendChild(table);
   }
 
-  // 4. Progress Pipeline Animation
-  function runPipelineAnimation(onComplete) {
+  function selectCell(coord, val, tdElem, container) {
+    selectedCellCoord = coord;
+    activeCellCoord.textContent = coord;
+    formulaBarInput.value = val;
+
+    container.querySelectorAll('.excel-grid-table td').forEach(td => td.classList.remove('cell-selected'));
+    if (tdElem) tdElem.classList.add('cell-selected');
+  }
+
+  function makeCellEditable(td, coord) {
+    const currentVal = td.textContent;
+    td.innerHTML = `<input type="text" class="form-control text-xs p-1" value="${currentVal}">`;
+    const input = td.querySelector('input');
+    input.focus();
+    input.select();
+
+    const commitChange = async () => {
+      const newVal = input.value;
+      td.textContent = newVal;
+      formulaBarInput.value = newVal;
+      await syncCellUpdate(coord, newVal);
+    };
+
+    input.addEventListener('blur', commitChange);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        input.blur();
+      }
+    });
+  }
+
+  // Formula Bar Realtime Input
+  formulaBarInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter' && selectedCellCoord) {
+      const newVal = formulaBarInput.value;
+      const td = document.getElementById(`cell_${selectedCellCoord}`);
+      if (td) td.textContent = newVal;
+      await syncCellUpdate(selectedCellCoord, newVal);
+      showToast(`Cell ${selectedCellCoord} updated`, 'info');
+    }
+  });
+
+  async function syncCellUpdate(coord, val) {
+    try {
+      await fetch('/api/session/update-cell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: currentSessionId, coordinate: coord, value: val })
+      });
+    } catch (e) {
+      console.error("Cell update error:", e);
+    }
+  }
+
+  // 5. Template Management (Upload, Preview Blank, Reset)
+  btnUploadTemplate.addEventListener('click', () => templateFileInput.click());
+
+  templateFileInput.addEventListener('change', async (e) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    showToast(`Sanitizing custom template: ${file.name}...`, 'info');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_id', currentSessionId);
+
+    try {
+      const res = await fetch('/api/template/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success) {
+        templateNameText.textContent = `Template: ${data.template_name}`;
+        currentGridData = data.grid;
+        renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+        showToast(`Template ${file.name} loaded & sanitized! All headers & formulas preserved.`, 'success');
+      }
+    } catch (err) {
+      showToast(`Template upload failed: ${err.message}`, 'error');
+    }
+  });
+
+  btnResetTemplate.addEventListener('click', async () => {
+    try {
+      const res = await fetch(`/api/template/reset?session_id=${currentSessionId}`, { method: 'POST' });
+      const data = await res.json();
+      templateNameText.textContent = `Template: Base Template (India Shelter)`;
+      currentGridData = data.grid;
+      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+      showToast('Reset to default base template.', 'info');
+    } catch (e) {
+      showToast('Reset failed', 'error');
+    }
+  });
+
+  btnPreviewCleanTemplate.addEventListener('click', async () => {
+    showToast('Loading clean blank blueprint...', 'info');
+    try {
+      const res = await fetch(`/api/template/clean-preview?session_id=${currentSessionId}`);
+      const grid = await res.json();
+      templatePreviewModal.style.display = 'flex';
+      renderSpreadsheetGrid(grid, templateModalViewport, false);
+    } catch (e) {
+      showToast('Failed to load template preview', 'error');
+    }
+  });
+
+  btnCloseTemplatePreview.addEventListener('click', () => templatePreviewModal.style.display = 'none');
+  btnConfirmTemplatePreview.addEventListener('click', () => templatePreviewModal.style.display = 'none');
+
+  // 6. Incremental File & Multi-format Ingestion
+  async function handleFileUploads(files) {
+    if (!files || files.length === 0) return;
+
+    showToast(`Ingesting ${files.length} document(s) & extracting data...`, 'info');
+    runPipelineAnimation();
+
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+    formData.append('session_id', currentSessionId);
+
+    try {
+      const res = await fetch('/api/session/upload-files', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Upload failed');
+      }
+
+      const result = await res.json();
+      currentReportData = result.report_data;
+      currentGridData = result.grid;
+      
+      populateFormWithData(currentReportData);
+      renderFilesList(result.files || []);
+      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+
+      btnDownloadReport.disabled = false;
+      showToast('Documents ingested & mapped to template cells!', 'success');
+    } catch (e) {
+      showToast(`Upload Error: ${e.message}`, 'error');
+      console.error(e);
+    }
+  }
+
+  // Direct Folder Ingestion
+  async function processFolderPath(folderPath) {
+    if (!folderPath || !folderPath.trim()) {
+      showToast('Please enter a valid folder path', 'error');
+      return;
+    }
+
+    showToast(`Scanning & Extracting: ${folderPath}`, 'info');
+    runPipelineAnimation();
+
+    try {
+      const res = await fetch('/api/process-folder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_path: folderPath.trim(), session_id: currentSessionId })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Extraction failed');
+      }
+
+      const result = await res.json();
+      currentReportData = result.data;
+      currentGridData = result.grid;
+      
+      populateFormWithData(currentReportData);
+      renderFilesList(currentReportData.raw_files_summary || []);
+      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+      
+      btnDownloadReport.disabled = false;
+      showToast('Case extracted and live grid populated!', 'success');
+    } catch (e) {
+      showToast(`Error: ${e.message}`, 'error');
+      console.error(e);
+    }
+  }
+
+  // 7. Pipeline Tracker Animation
+  function runPipelineAnimation() {
     pipelineTracker.style.display = 'block';
     pipelineProgressBar.style.width = '15%';
     
@@ -184,87 +461,10 @@ document.addEventListener('DOMContentLoaded', () => {
       pipelineProgressBar.style.width = '100%';
       s3.className = 'step completed';
       s4.className = 'step completed';
-      if (onComplete) onComplete();
     }, 1400);
   }
 
-  // 5. Ingest / Process Folder
-  async function processFolderPath(folderPath) {
-    if (!folderPath || !folderPath.trim()) {
-      showToast('Please enter a valid folder path', 'error');
-      return;
-    }
-
-    showToast(`Scanning & Extracting: ${folderPath}`, 'info');
-    runPipelineAnimation();
-
-    try {
-      const res = await fetch('/api/process-folder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder_path: folderPath.trim() })
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Extraction failed');
-      }
-
-      const result = await res.json();
-      currentReportData = result.data;
-      currentSourceFolder = result.source_folder;
-      
-      populateFormWithData(currentReportData);
-      renderFilesList(currentReportData.raw_files_summary || []);
-      
-      btnDownloadReport.disabled = false;
-      showToast('Case extracted and synced to Sunita.xlsx format successfully!', 'success');
-    } catch (e) {
-      showToast(`Error: ${e.message}`, 'error');
-      console.error(e);
-    }
-  }
-
-  // 6. Handle File Uploads (Drag & Drop or Multi-Select)
-  async function handleFileUploads(files) {
-    if (!files || files.length === 0) return;
-
-    showToast(`Uploading ${files.length} documents...`, 'info');
-    runPipelineAnimation();
-
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
-    }
-    formData.append('case_name', 'Uploaded_Case_' + new Date().toISOString().slice(0, 10));
-
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Upload and extraction failed');
-      }
-
-      const result = await res.json();
-      currentReportData = result.data;
-      currentSourceFolder = result.source_folder;
-
-      populateFormWithData(currentReportData);
-      renderFilesList(currentReportData.raw_files_summary || []);
-
-      btnDownloadReport.disabled = false;
-      showToast('Upload processed and 106 report fields extracted!', 'success');
-    } catch (e) {
-      showToast(`Upload Error: ${e.message}`, 'error');
-      console.error(e);
-    }
-  }
-
-  // 7. Render Files List in Left Pane
+  // 8. Render Files List in Left Pane
   function renderFilesList(files) {
     activeFiles = files;
     filesCountBadge.textContent = files.length;
@@ -273,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
       filesListContainer.innerHTML = `
         <div class="empty-state-card">
           <i class="fa-regular fa-folder-open"></i>
-          <p>No documents found in folder.</p>
+          <p>No documents found in session.</p>
         </div>`;
       return;
     }
@@ -284,17 +484,19 @@ document.addEventListener('DOMContentLoaded', () => {
       div.className = 'file-item';
       
       let icon = 'fa-solid fa-file';
-      if (file.type === 'site_photo') icon = 'fa-solid fa-file-image text-warning';
-      else if (file.type === 'property_pdf') icon = 'fa-solid fa-file-pdf text-danger';
-      else if (file.type === 'field_notes_docx') icon = 'fa-solid fa-file-word text-accent';
-      else if (file.type === 'target_excel_template' || file.type === 'excel') icon = 'fa-solid fa-file-excel text-success';
+      const ext = (file.type || '').replace('.', '');
+      if (['jpg', 'jpeg', 'png', 'webp', 'site_photo'].includes(ext)) icon = 'fa-solid fa-file-image text-warning';
+      else if (['pdf', 'property_pdf'].includes(ext)) icon = 'fa-solid fa-file-pdf text-danger';
+      else if (['docx', 'doc', 'field_notes_docx'].includes(ext)) icon = 'fa-solid fa-file-word text-accent';
+      else if (['xlsx', 'csv', 'excel'].includes(ext)) icon = 'fa-solid fa-file-excel text-success';
+      else if (['zip'].includes(ext)) icon = 'fa-solid fa-file-zipper text-warning';
 
       div.innerHTML = `
         <div class="file-info">
           <i class="${icon} file-icon"></i>
           <div>
             <div class="file-name truncate" title="${file.filename}">${file.filename}</div>
-            <div class="file-size">${file.size_display} &bull; ${file.type}</div>
+            <div class="file-size">${file.size_display || ''} &bull; ${file.type || 'document'}</div>
           </div>
         </div>
         <button class="btn-icon" title="Preview document"><i class="fa-regular fa-eye"></i></button>
@@ -305,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 8. Document Previewer
+  // 9. Document Previewer
   function previewFile(file) {
     previewFileName.textContent = file.filename;
     docPreviewWrapper.style.display = 'block';
@@ -333,11 +535,11 @@ document.addEventListener('DOMContentLoaded', () => {
     docPreviewWrapper.style.display = 'none';
   });
 
-  // 9. Populate Form Fields from Extracted JSON
+  // 10. Populate Form Fields from Extracted JSON
   function populateFormWithData(data) {
     if (!data) return;
 
-    casePillBadge.innerHTML = `<i class="fa-solid fa-id-card"></i> Case: ${data.case_name || 'Sunita Devi'}`;
+    casePillBadge.innerHTML = `<i class="fa-solid fa-id-card"></i> Case: ${data.header?.applicant_name || data.case_name || 'Active Case'}`;
 
     // Header
     const h = data.header || {};
@@ -446,145 +648,55 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_remarks').value = data.remarks || "";
   }
 
-  // 10. Collect Current Form State into JSON
-  function collectFormData() {
-    const floors = [];
-    document.querySelectorAll('#floorsTableBody tr').forEach((tr, idx) => {
-      floors.push({
-        name: defaultFloorNames[idx],
-        actual_area: parseFloat(tr.querySelector('.floor-actual').value || 0),
-        permissible_area: parseFloat(tr.querySelector('.floor-permissible').value || 0),
-        adopted_area: parseFloat(tr.querySelector('.floor-adopted').value || 0)
-      });
+  // 11. Floors Table Init
+  function initFloorTable(floorsData = null) {
+    floorsTableBody.innerHTML = '';
+    defaultFloorNames.forEach((name, idx) => {
+      const floor = (floorsData && floorsData[idx]) ? floorsData[idx] : { name, actual_area: 0, permissible_area: 0, adopted_area: 0 };
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="font-bold">${floor.name}</td>
+        <td><input type="number" class="floor-actual" data-idx="${idx}" value="${floor.actual_area}"></td>
+        <td><input type="number" class="floor-permissible" data-idx="${idx}" value="${floor.permissible_area}"></td>
+        <td><input type="number" class="floor-adopted" data-idx="${idx}" value="${floor.adopted_area}"></td>
+      `;
+      floorsTableBody.appendChild(tr);
     });
 
-    return {
-      case_name: currentReportData ? currentReportData.case_name : "Case_Export",
-      header: {
-        report_title: document.getElementById('inp_report_title').value,
-        application_id: document.getElementById('inp_application_id').value,
-        applicant_name: document.getElementById('inp_applicant_name').value,
-        property_type: document.getElementById('inp_property_type').value,
-        completion_percent: parseFloat(document.getElementById('inp_completion_percent').value || 1.0),
-        structure_type: document.getElementById('inp_structure_type').value,
-        age_of_property: document.getElementById('inp_age_of_property').value,
-        dwelling_units_owned: parseInt(document.getElementById('inp_dwelling_units_owned').value || 1),
-        geo_tag: document.getElementById('inp_geo_tag').value
-      },
-      address: {
-        street_name: document.getElementById('inp_street_name').value,
-        nearest_landmark: document.getElementById('inp_nearest_landmark').value,
-        village_name: document.getElementById('inp_village_name').value,
-        city: document.getElementById('inp_city').value,
-        plot_house_khasra: document.getElementById('inp_plot_house_khasra').value,
-        floor_number: document.getElementById('inp_floor_number').value,
-        colony_name: document.getElementById('inp_colony_name').value,
-        address_site: document.getElementById('inp_address_site').value,
-        address_docs: document.getElementById('inp_address_docs').value,
-        pincode: document.getElementById('inp_pincode').value,
-        district: document.getElementById('inp_district').value
-      },
-      boundaries: {
-        site_east: document.getElementById('inp_site_east').value,
-        site_west: document.getElementById('inp_site_west').value,
-        site_north: document.getElementById('inp_site_north').value,
-        site_south: document.getElementById('inp_site_south').value,
-        deed_east: document.getElementById('inp_deed_east').value,
-        deed_west: document.getElementById('inp_deed_west').value,
-        deed_north: document.getElementById('inp_deed_north').value,
-        deed_south: document.getElementById('inp_deed_south').value,
-        boundary_matching: document.getElementById('inp_boundary_matching').value,
-        mismatch_remarks: document.getElementById('inp_mismatch_remarks').value,
-        occupancy_status: document.getElementById('inp_occupancy_status').value
-      },
-      solar_roof_vicinity: {
-        solar_install_location: document.getElementById('inp_solar_install_location').value,
-        roof_length_sqft: parseFloat(document.getElementById('inp_roof_length_sqft').value || 15),
-        roof_breadth_sqft: parseFloat(document.getElementById('inp_roof_breadth_sqft').value || 38),
-        shadow_free_roof_sqft: parseFloat(document.getElementById('inp_shadow_free_roof_sqft').value || 0),
-        parapet_wall_height: parseFloat(document.getElementById('inp_parapet_wall_height').value || 0),
-        cracks_in_roof: parseFloat(document.getElementById('inp_cracks_in_roof').value || 0),
-        is_outreach: document.getElementById('inp_is_outreach').value,
-        population_1km: document.getElementById('inp_population_1km').value,
-        primary_schools_1km: parseInt(document.getElementById('inp_primary_schools_1km').value || 1),
-        secondary_schools_1km: parseInt(document.getElementById('inp_secondary_schools_1km').value || 1)
-      },
-      land_measurements: {
-        land_length: parseFloat(document.getElementById('inp_land_length').value || 38),
-        land_breadth: parseFloat(document.getElementById('inp_land_breadth').value || 15),
-        land_area_site_sqft: document.getElementById('inp_land_area_site_sqft').value,
-        adopted_land_area_sqft: parseFloat(document.getElementById('inp_adopted_land_area_sqft').value || 569.7),
-        per_unit_land_rate: parseFloat(document.getElementById('inp_per_unit_land_rate').value || 0),
-        total_land_value: "=B46*B47"
-      },
-      construction_floors: {
-        floors: floors,
-        built_up_rate: parseFloat(document.getElementById('inp_built_up_rate').value || 0),
-        total_property_value: parseFloat(document.getElementById('inp_total_property_value').value || 0)
-      },
-      accommodation: {
-        no_of_floors: parseInt(document.getElementById('inp_no_of_floors').value || 5),
-        toilet_available: document.getElementById('inp_toilet_available').value,
-        no_of_lifts: parseInt(document.getElementById('inp_no_of_lifts').value || 0),
-        apartments_per_floor: parseInt(document.getElementById('inp_apartments_per_floor').value || 1),
-        electricity_meter_installed: document.getElementById('inp_electricity_meter_installed').value,
-        electricity_meter_number: document.getElementById('inp_electricity_meter_number').value
-      },
-      legal_checks: {
-        documents_name: document.getElementById('inp_documents_name').value,
-        person_met: document.getElementById('inp_person_met').value,
-        relation_with_owner: document.getElementById('inp_relation_with_owner').value,
-        property_situated_at: document.getElementById('inp_property_situated_at').value,
-        is_sanction_plan_compliant: document.getElementById('inp_is_sanction_plan_compliant').value,
-        pathway_clear: document.getElementById('inp_pathway_clear').value,
-        is_disaster_prone: document.getElementById('inp_is_disaster_prone').value,
-        approach_by_public_road: document.getElementById('inp_approach_by_public_road').value,
-        width_of_public_road: document.getElementById('inp_width_of_public_road').value,
-        utilities_in_vicinity: document.getElementById('inp_utilities_in_vicinity').value,
-        approved_land_master_plan: document.getElementById('inp_approved_land_master_plan').value,
-        current_uses: document.getElementById('inp_current_uses').value,
-        opinion_about_report: document.getElementById('inp_opinion_about_report').value,
-        occupancy_250m: document.getElementById('inp_occupancy_250m').value,
-        development_250m: document.getElementById('inp_development_250m').value,
-        property_limit: document.getElementById('inp_property_limit').value,
-        adm: document.getElementById('inp_adm').value
-      },
-      reference: {
-        reference_name: document.getElementById('inp_reference_name').value,
-        reference_mobile: document.getElementById('inp_reference_mobile').value,
-        feedback: document.getElementById('inp_feedback').value
-      },
-      remarks: document.getElementById('inp_remarks').value,
-      raw_files_summary: activeFiles
-    };
+    document.querySelectorAll('.floor-actual, .floor-adopted').forEach(input => {
+      input.addEventListener('input', recalculateFloorTotals);
+    });
   }
 
-  // 11. Generate and Download Exact Sunita.xlsx Excel Report as Binary Blob
+  function recalculateFloorTotals() {
+    let sumActual = 0;
+    let sumAdopted = 0;
+    document.querySelectorAll('.floor-actual').forEach(inp => sumActual += parseFloat(inp.value || 0));
+    document.querySelectorAll('.floor-adopted').forEach(inp => sumAdopted += parseFloat(inp.value || 0));
+    
+    document.getElementById('totalActualArea').textContent = `=SUM(B52:B61) (${sumActual})`;
+    document.getElementById('totalAdoptedArea').textContent = `=SUM(D52:D61) (${sumAdopted})`;
+  }
+
+  // 12. Final Excel Generation & Download
   async function generateAndDownloadExcel() {
-    const payload = collectFormData();
-    showToast('Generating Exact Excel Report...', 'info');
+    showToast('Compiling Excel Report with Formula Engine...', 'info');
 
     try {
-      const res = await fetch('/api/generate-excel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch(`/api/session/download-excel?session_id=${currentSessionId}`, {
+        method: 'POST'
       });
 
       if (!res.ok) {
         const err = await res.json();
-        throw new Error(err.detail || 'Excel generation failed');
+        throw new Error(err.detail || 'Download failed');
       }
 
-      // Read as binary blob
       const blob = await res.blob();
-      
-      // Determine filename
-      const applicantName = (payload.header.applicant_name || payload.case_name || 'Report').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const appId = (payload.header.application_id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const applicantName = (currentReportData?.header?.applicant_name || 'Valuation_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const appId = (currentReportData?.header?.application_id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `${applicantName}_${appId}.xlsx`.replace(/__+/g, '_');
 
-      // Create explicit blob download link
       const blobUrl = window.URL.createObjectURL(blob);
       const downloadLink = document.createElement('a');
       downloadLink.style.display = 'none';
@@ -605,21 +717,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 12. Export JSON Payload
-  function exportJsonPayload() {
-    const payload = collectFormData();
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
-    const a = document.createElement('a');
-    a.href = dataStr;
-    a.download = `${payload.case_name}_Data.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast('JSON data exported!', 'success');
-  }
-
   // 13. Event Listeners
   function initEventListeners() {
+    if (btnThemeToggle) btnThemeToggle.addEventListener('click', toggleTheme);
+
     btnLoadSunitaCase.addEventListener('click', () => {
       const path = folderPathInput.value || "d:\\ABHAY VICKY\\Banking client project\\SUNITA DEVI BACHHAN KUMAR";
       processFolderPath(path);
@@ -670,23 +771,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     btnGenerateExcel.addEventListener('click', generateAndDownloadExcel);
     btnDownloadReport.addEventListener('click', generateAndDownloadExcel);
-    btnExportJson.addEventListener('click', exportJsonPayload);
 
-    if (btnThemeToggle) {
-      btnThemeToggle.addEventListener('click', toggleTheme);
-    }
-
-    btnSettingsModal.addEventListener('click', () => {
-      settingsModal.style.display = 'flex';
-    });
-
-    btnCloseSettings.addEventListener('click', () => {
-      settingsModal.style.display = 'none';
-    });
-
-    btnCancelSettings.addEventListener('click', () => {
-      settingsModal.style.display = 'none';
-    });
+    btnSettingsModal.addEventListener('click', () => settingsModal.style.display = 'flex');
+    btnCloseSettings.addEventListener('click', () => settingsModal.style.display = 'none');
+    btnCancelSettings.addEventListener('click', () => settingsModal.style.display = 'none');
 
     btnSaveSettings.addEventListener('click', async () => {
       const apiKey = modalApiKey.value.trim();

@@ -55,8 +55,26 @@
         <div class="ingest-title">
           <i class="fa-solid fa-folder-open text-accent"></i>
           <h3>Case Document Ingestion</h3>
-          <span class="badge-soft">Upload Folder / Scans / PDFs / Photos</span>
+          <span class="badge-soft">Upload Folder / Scans / PDFs / Photos / ZIP / CSV</span>
         </div>
+        
+        <!-- Template Management Deck -->
+        <div class="template-deck">
+          <input type="file" id="templateFileInput" accept=".xlsx" style="display:none;">
+          <span class="badge-pill bg-accent-soft" id="activeTemplateBadge">
+            <i class="fa-solid fa-file-excel text-success"></i> <span id="templateNameText">Template: Base Template (India Shelter)</span>
+          </span>
+          <button class="btn btn-sm btn-outline" id="btnUploadTemplate" title="Upload custom .xlsx template (blank or filled)">
+            <i class="fa-solid fa-file-arrow-up"></i> Upload Custom Template
+          </button>
+          <button class="btn btn-sm btn-outline" id="btnPreviewCleanTemplate" title="View clean blank template in browser">
+            <i class="fa-solid fa-eye"></i> View Blank Template
+          </button>
+          <button class="btn btn-sm btn-outline" id="btnResetTemplate" title="Reset to default India Shelter template">
+            <i class="fa-solid fa-rotate-left"></i>
+          </button>
+        </div>
+
         <div class="sample-actions" id="sampleCasesList">
           <span class="text-muted text-sm">Quick Test:</span>
           <button class="btn-chip active" id="btnLoadSunitaCase">
@@ -69,19 +87,19 @@
         <!-- Drag and Drop Dropzone -->
         <div class="dropzone" id="fileDropzone">
           <input type="file" id="fileInput" multiple webkitdirectory directory style="display:none;">
-          <input type="file" id="multiFileInput" multiple style="display:none;">
+          <input type="file" id="multiFileInput" multiple accept=".pdf,.docx,.jpg,.jpeg,.png,.webp,.csv,.zip" style="display:none;">
           <div class="dropzone-content">
             <div class="dropzone-icon">
               <i class="fa-solid fa-cloud-arrow-up"></i>
             </div>
-            <h4>Drag & drop case files or entire folders here</h4>
-            <p class="dropzone-subtext">Supports PDFs (scanned deeds, GPA, ATS), JPG/PNG photos, DOCX survey notes, and TIFFs</p>
+            <h4>Drag & drop case files, folders, or .ZIP archives</h4>
+            <p class="dropzone-subtext">Upload one-by-one or in batch: PDFs, Photos, DOCX, CSVs, and ZIP archives</p>
             <div class="dropzone-btns">
               <button class="btn btn-sm btn-outline" id="btnSelectFiles">
-                <i class="fa-solid fa-file-arrow-up"></i> Select Files
+                <i class="fa-solid fa-file-arrow-up"></i> Add Files / ZIP
               </button>
               <button class="btn btn-sm btn-outline" id="btnSelectFolder">
-                <i class="fa-solid fa-folder-plus"></i> Select Folder
+                <i class="fa-solid fa-folder-plus"></i> Add Folder
               </button>
             </div>
           </div>
@@ -97,7 +115,7 @@
             </button>
           </div>
           <p class="text-xs text-muted mt-2">
-            <i class="fa-solid fa-circle-info"></i> Processes deeds, GPS images, field notes, and cross-references data against <code>Sunita.xlsx</code> template.
+            <i class="fa-solid fa-circle-info"></i> Processes deeds, GPS images, field notes, and cross-references data against active template.
           </p>
         </div>
       </div>
@@ -160,26 +178,27 @@
         </div>
       </aside>
 
-      <!-- Right Column: Interactive 106-Field Valuation Editor -->
+      <!-- Right Column: Interactive 106-Field Valuation Editor & Live Excel Grid -->
       <main class="right-pane glass-panel">
         <div class="pane-header editor-header">
           <div class="case-meta">
             <span class="badge-pill" id="casePillBadge"><i class="fa-solid fa-id-card"></i> Case: None</span>
-            <span class="badge-pill bg-success-soft" id="accuracyBadge"><i class="fa-solid fa-circle-check"></i> Template Formats: 100% Synced</span>
+            <span class="badge-pill bg-success-soft" id="accuracyBadge"><i class="fa-solid fa-circle-check"></i> Live Formulas: Active</span>
           </div>
           <div class="editor-actions">
             <button class="btn btn-sm btn-outline" id="btnExportJson" title="Export Raw JSON Data">
               <i class="fa-solid fa-code"></i> Export JSON
             </button>
             <button class="btn btn-sm btn-success" id="btnGenerateExcel">
-              <i class="fa-solid fa-file-excel"></i> Generate Excel
+              <i class="fa-solid fa-file-excel"></i> Download Excel (.xlsx)
             </button>
           </div>
         </div>
 
         <!-- Navigation Tabs for Report Sections -->
         <nav class="editor-tabs" id="editorTabs">
-          <button class="tab-btn active" data-tab="tab-overview"><i class="fa-solid fa-user-tie"></i> Overview & Applicant</button>
+          <button class="tab-btn active" data-tab="tab-grid"><i class="fa-solid fa-table-cells text-success"></i> Live Excel Grid</button>
+          <button class="tab-btn" data-tab="tab-overview"><i class="fa-solid fa-user-tie"></i> Overview & Applicant</button>
           <button class="tab-btn" data-tab="tab-address"><i class="fa-solid fa-location-dot"></i> Address Comparison</button>
           <button class="tab-btn" data-tab="tab-boundaries"><i class="fa-solid fa-compass"></i> Boundaries & Site</button>
           <button class="tab-btn" data-tab="tab-land"><i class="fa-solid fa-ruler-combined"></i> Land & Dimensions</button>
@@ -191,6 +210,27 @@
 
         <!-- Tab Contents -->
         <div class="tab-content-area" id="tabContentArea">
+
+          <!-- TAB 0: LIVE EXCEL SPREADSHEET GRID -->
+          <div class="tab-pane active" id="tab-grid">
+            <div class="grid-card">
+              <div class="grid-toolbar">
+                <div class="formula-bar">
+                  <span class="cell-coord-badge" id="activeCellCoord">A1</span>
+                  <input type="text" id="formulaBarInput" placeholder="Select any cell to view or edit value..." class="formula-input">
+                </div>
+                <div class="grid-actions">
+                  <span class="text-xs text-muted"><i class="fa-solid fa-circle-info"></i> Click any cell to edit &bull; Formulas auto-calculate</span>
+                </div>
+              </div>
+              <div class="spreadsheet-viewport" id="spreadsheetViewport">
+                <div class="empty-state-card p-5">
+                  <i class="fa-solid fa-spinner fa-spin fa-2x text-accent mb-3"></i>
+                  <p>Loading interactive spreadsheet grid...</p>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <!-- TAB 1: Overview & Applicant -->
           <div class="tab-pane active" id="tab-overview">
@@ -757,6 +797,33 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="btnCancelSettings">Cancel</button>
         <button class="btn btn-primary" id="btnSaveSettings"><i class="fa-solid fa-check"></i> Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template Clean Preview Modal -->
+  <div class="modal-overlay" id="templatePreviewModal" style="display:none;">
+    <div class="modal-card modal-lg glass-panel">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-file-excel text-success"></i>
+          <h3>Clean Template Blueprint Preview (Blank)</h3>
+        </div>
+        <button class="btn-icon" id="btnCloseTemplatePreview"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="template-preview-info p-3">
+          <p class="text-sm text-muted">
+            <i class="fa-solid fa-circle-info text-accent"></i> 
+            This is the sanitized base blueprint. All old/sample data is cleared, while all labels, headers, formulas (<code>=SUM(...)</code>), fonts, and formatting remain 100% intact.
+          </p>
+        </div>
+        <div class="spreadsheet-viewport modal-viewport" id="templateModalViewport">
+          <!-- Rendered Clean Grid -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btnConfirmTemplatePreview">Close Preview</button>
       </div>
     </div>
   </div>
