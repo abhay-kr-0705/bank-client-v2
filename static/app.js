@@ -48,17 +48,47 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnSaveSettings = document.getElementById('btnSaveSettings');
   const modalApiKey = document.getElementById('modalApiKey');
   const modalModelSelect = document.getElementById('modalModelSelect');
-  const engineStatusBadge = document.getElementById('engineStatusBadge');
-  const engineStatusText = document.getElementById('engineStatusText');
+  // Theme Elements
+  const btnThemeToggle = document.getElementById('btnThemeToggle');
+  const themeIcon = document.getElementById('themeIcon');
+  const themeText = document.getElementById('themeText');
 
   // Floor Table Body
   const floorsTableBody = document.getElementById('floorsTableBody');
 
   // Initialize
+  initTheme();
   initFloorTable();
   initTabs();
   initEventListeners();
   checkBackendHealth();
+
+  // 0. Theme Toggle
+  function initTheme() {
+    const savedTheme = localStorage.getItem('banktech_theme') || 'dark';
+    applyTheme(savedTheme);
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'light') {
+      document.body.classList.add('light-theme');
+      document.body.classList.remove('dark-theme');
+      if (themeIcon) themeIcon.className = 'fa-solid fa-moon';
+      if (themeText) themeText.textContent = 'Dark Mode';
+    } else {
+      document.body.classList.add('dark-theme');
+      document.body.classList.remove('light-theme');
+      if (themeIcon) themeIcon.className = 'fa-solid fa-sun';
+      if (themeText) themeText.textContent = 'Light Mode';
+    }
+    localStorage.setItem('banktech_theme', theme);
+  }
+
+  function toggleTheme() {
+    const currentIsLight = document.body.classList.contains('light-theme');
+    applyTheme(currentIsLight ? 'dark' : 'light');
+    showToast(`Switched to ${currentIsLight ? 'Dark' : 'Light'} Mode`, 'info');
+  }
 
   // 1. Initial Setup & Health Check
   async function checkBackendHealth() {
@@ -641,6 +671,10 @@ document.addEventListener('DOMContentLoaded', () => {
     btnGenerateExcel.addEventListener('click', generateAndDownloadExcel);
     btnDownloadReport.addEventListener('click', generateAndDownloadExcel);
     btnExportJson.addEventListener('click', exportJsonPayload);
+
+    if (btnThemeToggle) {
+      btnThemeToggle.addEventListener('click', toggleTheme);
+    }
 
     btnSettingsModal.addEventListener('click', () => {
       settingsModal.style.display = 'flex';
