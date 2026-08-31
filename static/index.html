@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BankTech OCR & Valuation Report Generator | India Shelter Template Engine</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-left">
+      <div class="logo-badge">
+        <i class="fa-solid fa-building-columns"></i>
+      </div>
+      <div class="brand-text">
+        <h1>BankTech <span>Valuation OCR</span></h1>
+        <p class="subtitle">Autonomous Multimodal Extraction & Exact Excel Template Engine</p>
+      </div>
+    </div>
+
+    <div class="nav-center">
+      <div class="engine-badge" id="engineStatusBadge">
+        <span class="pulse-dot"></span>
+        <span id="engineStatusText">Local Hybrid OCR Active</span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <button class="btn btn-secondary" id="btnSettingsModal" title="AI Configuration">
+        <i class="fa-solid fa-sliders"></i> Settings
+      </button>
+      <button class="btn btn-primary" id="btnDownloadReport" disabled>
+        <i class="fa-solid fa-file-excel"></i> Generate & Download Excel
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container Grid -->
+  <main class="app-container">
+    
+    <!-- Top Ingestion & Action Deck -->
+    <section class="ingest-card glass-panel">
+      <div class="ingest-header">
+        <div class="ingest-title">
+          <i class="fa-solid fa-folder-open text-accent"></i>
+          <h3>Case Document Ingestion</h3>
+          <span class="badge-soft">Upload Folder / Scans / PDFs / Photos</span>
+        </div>
+        <div class="sample-actions" id="sampleCasesList">
+          <span class="text-muted text-sm">Quick Test:</span>
+          <button class="btn-chip active" id="btnLoadSunitaCase">
+            <i class="fa-solid fa-bolt text-warning"></i> Load "SUNITA DEVI BACHHAN KUMAR"
+          </button>
+        </div>
+      </div>
+
+      <div class="upload-split">
+        <!-- Drag and Drop Dropzone -->
+        <div class="dropzone" id="fileDropzone">
+          <input type="file" id="fileInput" multiple webkitdirectory directory style="display:none;">
+          <input type="file" id="multiFileInput" multiple style="display:none;">
+          <div class="dropzone-content">
+            <div class="dropzone-icon">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+            </div>
+            <h4>Drag & drop case files or entire folders here</h4>
+            <p class="dropzone-subtext">Supports PDFs (scanned deeds, GPA, ATS), JPG/PNG photos, DOCX survey notes, and TIFFs</p>
+            <div class="dropzone-btns">
+              <button class="btn btn-sm btn-outline" id="btnSelectFiles">
+                <i class="fa-solid fa-file-arrow-up"></i> Select Files
+              </button>
+              <button class="btn btn-sm btn-outline" id="btnSelectFolder">
+                <i class="fa-solid fa-folder-plus"></i> Select Folder
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Direct Server Folder Path Input -->
+        <div class="path-ingest">
+          <label for="folderPathInput"><i class="fa-solid fa-laptop-code"></i> Direct Workspace Folder Path</label>
+          <div class="input-group">
+            <input type="text" id="folderPathInput" placeholder="d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR" value="d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR">
+            <button class="btn btn-accent" id="btnRunFolderPath">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> Extract & Map
+            </button>
+          </div>
+          <p class="text-xs text-muted mt-2">
+            <i class="fa-solid fa-circle-info"></i> Processes deeds, GPS images, field notes, and cross-references data against <code>Sunita.xlsx</code> template.
+          </p>
+        </div>
+      </div>
+
+      <!-- Realtime Pipeline Progress Tracker -->
+      <div class="pipeline-tracker" id="pipelineTracker" style="display:none;">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="pipelineProgressBar" style="width: 0%;"></div>
+        </div>
+        <div class="pipeline-steps">
+          <div class="step active" id="step1">
+            <div class="step-icon"><i class="fa-solid fa-file-import"></i></div>
+            <span>1. Ingest Documents</span>
+          </div>
+          <div class="step" id="step2">
+            <div class="step-icon"><i class="fa-solid fa-eye"></i></div>
+            <span>2. Multimodal OCR</span>
+          </div>
+          <div class="step" id="step3">
+            <div class="step-icon"><i class="fa-solid fa-network-wired"></i></div>
+            <span>3. Cross-Doc Entity Match</span>
+          </div>
+          <div class="step" id="step4">
+            <div class="step-icon"><i class="fa-solid fa-table-cells"></i></div>
+            <span>4. Excel Template Ready</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Two-Column Workspace Layout -->
+    <div class="workspace-grid" id="workspaceArea">
+
+      <!-- Left Column: Source Documents & Live Inspector -->
+      <aside class="left-pane glass-panel">
+        <div class="pane-header">
+          <div class="pane-title">
+            <i class="fa-solid fa-folder-tree text-accent"></i>
+            <h4>Source Documents</h4>
+            <span class="badge-count" id="filesCountBadge">0</span>
+          </div>
+        </div>
+
+        <div class="files-list" id="filesListContainer">
+          <div class="empty-state-card">
+            <i class="fa-regular fa-folder-open"></i>
+            <p>No documents loaded yet.<br>Click "Load SUNITA DEVI Case" or upload files.</p>
+          </div>
+        </div>
+
+        <!-- Document Preview Section -->
+        <div class="doc-preview-wrapper" id="docPreviewWrapper" style="display:none;">
+          <div class="preview-header">
+            <span id="previewFileName" class="text-sm font-semibold truncate">Preview</span>
+            <button class="btn-icon" id="btnClosePreview" title="Close Preview"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <div class="preview-body" id="previewBody">
+            <!-- Dynamic Image / PDF embed / DOCX text preview -->
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Column: Interactive 106-Field Valuation Editor -->
+      <main class="right-pane glass-panel">
+        <div class="pane-header editor-header">
+          <div class="case-meta">
+            <span class="badge-pill" id="casePillBadge"><i class="fa-solid fa-id-card"></i> Case: None</span>
+            <span class="badge-pill bg-success-soft" id="accuracyBadge"><i class="fa-solid fa-circle-check"></i> Template Formats: 100% Synced</span>
+          </div>
+          <div class="editor-actions">
+            <button class="btn btn-sm btn-outline" id="btnExportJson" title="Export Raw JSON Data">
+              <i class="fa-solid fa-code"></i> Export JSON
+            </button>
+            <button class="btn btn-sm btn-success" id="btnGenerateExcel">
+              <i class="fa-solid fa-file-excel"></i> Generate Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs for Report Sections -->
+        <nav class="editor-tabs" id="editorTabs">
+          <button class="tab-btn active" data-tab="tab-overview"><i class="fa-solid fa-user-tie"></i> Overview & Applicant</button>
+          <button class="tab-btn" data-tab="tab-address"><i class="fa-solid fa-location-dot"></i> Address Comparison</button>
+          <button class="tab-btn" data-tab="tab-boundaries"><i class="fa-solid fa-compass"></i> Boundaries & Site</button>
+          <button class="tab-btn" data-tab="tab-land"><i class="fa-solid fa-ruler-combined"></i> Land & Dimensions</button>
+          <button class="tab-btn" data-tab="tab-floors"><i class="fa-solid fa-layer-group"></i> Floors & Construction</button>
+          <button class="tab-btn" data-tab="tab-checks"><i class="fa-solid fa-scale-balanced"></i> Statutory & Legal Checks</button>
+          <button class="tab-btn" data-tab="tab-references"><i class="fa-solid fa-comments"></i> Reference & Feedback</button>
+          <button class="tab-btn" data-tab="tab-remarks"><i class="fa-solid fa-list-check"></i> 13-Point Remarks</button>
+        </nav>
+
+        <!-- Tab Contents -->
+        <div class="tab-content-area" id="tabContentArea">
+
+          <!-- TAB 1: Overview & Applicant -->
+          <div class="tab-pane active" id="tab-overview">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-circle-info"></i> Report & Applicant Identification</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Report Header</label>
+                  <input type="text" id="inp_report_title" value="India Shelter Report">
+                </div>
+                <div class="form-group">
+                  <label>Application ID <span class="text-danger">*</span></label>
+                  <input type="text" id="inp_application_id" placeholder="e.g. AP-10524478">
+                </div>
+                <div class="form-group">
+                  <label>Applicant Name <span class="text-danger">*</span></label>
+                  <input type="text" id="inp_applicant_name" placeholder="e.g. Mrs. Sunita Devi">
+                </div>
+                <div class="form-group">
+                  <label>Type of Property</label>
+                  <select id="inp_property_type">
+                    <option value="Row House">Row House</option>
+                    <option value="Independent Floor">Independent Floor</option>
+                    <option value="Apartment">Apartment</option>
+                    <option value="Plot Purchase +Construction">Plot Purchase +Construction</option>
+                    <option value="Commercial Building">Commercial Building</option>
+                    <option value="Commercial Unit">Commercial Unit</option>
+                    <option value="Shop">Shop</option>
+                    <option value="Commercial Floor">Commercial Floor</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Percentage of Completion</label>
+                  <input type="number" step="0.01" id="inp_completion_percent" value="1.0">
+                </div>
+                <div class="form-group">
+                  <label>Type of Structure</label>
+                  <select id="inp_structure_type">
+                    <option value="RCC">RCC</option>
+                    <option value="Load Bearing">Load Bearing</option>
+                    <option value="Temporary">Temporary</option>
+                    <option value="None">None</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Age of Property</label>
+                  <input type="text" id="inp_age_of_property" value="08 Years">
+                </div>
+                <div class="form-group">
+                  <label>Dwelling Units Owned</label>
+                  <input type="number" id="inp_dwelling_units_owned" value="1">
+                </div>
+                <div class="form-group">
+                  <label>Geo Tag (Coordinates)</label>
+                  <div class="input-with-icon">
+                    <i class="fa-solid fa-location-crosshairs"></i>
+                    <input type="text" id="inp_geo_tag" placeholder="28.627023, 77.026233">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: Address Comparison -->
+          <div class="tab-pane" id="tab-address">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-map-location-dot"></i> Detailed Address Components</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Street Name / Number</label>
+                  <input type="text" id="inp_street_name" value="Gali No. 14">
+                </div>
+                <div class="form-group">
+                  <label>Nearest Landmark</label>
+                  <input type="text" id="inp_nearest_landmark" value="Nearby Aggarwal Store">
+                </div>
+                <div class="form-group">
+                  <label>Village Name</label>
+                  <input type="text" id="inp_village_name" value="Nawada">
+                </div>
+                <div class="form-group">
+                  <label>Plot / House / Flat / Khasra No.</label>
+                  <input type="text" id="inp_plot_house_khasra" value="Property No. 8-B">
+                </div>
+                <div class="form-group">
+                  <label>Floor Number</label>
+                  <input type="text" id="inp_floor_number" value="Entire Property">
+                </div>
+                <div class="form-group">
+                  <label>Project / Society / Colony Name</label>
+                  <input type="text" id="inp_colony_name" value="Vipin garden Extn.">
+                </div>
+                <div class="form-group">
+                  <label>City</label>
+                  <input type="text" id="inp_city" value="New Delhi">
+                </div>
+                <div class="form-group">
+                  <label>District</label>
+                  <input type="text" id="inp_district" value="New Delhi">
+                </div>
+                <div class="form-group">
+                  <label>Pincode as per Site</label>
+                  <input type="text" id="inp_pincode" value="110059">
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label class="font-bold text-accent"><i class="fa-solid fa-eye"></i> Address as per Site</label>
+                  <textarea id="inp_address_site" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                  <label class="font-bold text-accent"><i class="fa-solid fa-file-contract"></i> Property Address as per Documents</label>
+                  <textarea id="inp_address_docs" rows="3"></textarea>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 3: Boundaries & Site -->
+          <div class="tab-pane" id="tab-boundaries">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-compass"></i> Boundaries Comparison (Site vs Title Deed)</div>
+              <div class="table-responsive mb-4">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Direction</th>
+                      <th><i class="fa-solid fa-person-walking"></i> Boundary as per Site</th>
+                      <th><i class="fa-solid fa-stamp"></i> Boundary as per Title Deed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="font-bold">East</td>
+                      <td><input type="text" id="inp_site_east" value="Others Property/Meter No. 21901820"></td>
+                      <td><input type="text" id="inp_deed_east" value="Plot No. 8-A"></td>
+                    </tr>
+                    <tr>
+                      <td class="font-bold">West</td>
+                      <td><input type="text" id="inp_site_west" value="Others Property/Meter No. 46215085"></td>
+                      <td><input type="text" id="inp_deed_west" value="Plot No. 9-A"></td>
+                    </tr>
+                    <tr>
+                      <td class="font-bold">North</td>
+                      <td><input type="text" id="inp_site_north" value="Road 23 Ft Wide"></td>
+                      <td><input type="text" id="inp_deed_north" value="Road 23 Ft Wide"></td>
+                    </tr>
+                    <tr>
+                      <td class="font-bold">South</td>
+                      <td><input type="text" id="inp_site_south" value="Others Property"></td>
+                      <td><input type="text" id="inp_deed_south" value="Other Land"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Boundary Matching</label>
+                  <select id="inp_boundary_matching">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Mismatch Remarks</label>
+                  <input type="text" id="inp_mismatch_remarks" value="NA">
+                </div>
+                <div class="form-group">
+                  <label>Occupancy Status</label>
+                  <select id="inp_occupancy_status">
+                    <option value="Seller">Seller</option>
+                    <option value="Borrower">Borrower</option>
+                    <option value="Tenant">Tenant</option>
+                    <option value="Vacant">Vacant</option>
+                    <option value="Self+Tenant">Self+Tenant</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 4: Land & Dimensions -->
+          <div class="tab-pane" id="tab-land">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-vector-square"></i> Land Area & Plot Dimensions</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Plot Length (Ft)</label>
+                  <input type="number" step="0.1" id="inp_land_length" value="38">
+                </div>
+                <div class="form-group">
+                  <label>Plot Breadth (Ft)</label>
+                  <input type="number" step="0.1" id="inp_land_breadth" value="15">
+                </div>
+                <div class="form-group">
+                  <label>Land Area as per Site (Sqft)</label>
+                  <input type="text" id="inp_land_area_site_sqft" value="569.7 Sqft">
+                </div>
+                <div class="form-group">
+                  <label>Adopted Land Area (Sqft)</label>
+                  <input type="number" step="0.1" id="inp_adopted_land_area_sqft" value="569.7">
+                </div>
+                <div class="form-group">
+                  <label>Per Unit Land Rate (Rs / Sqft)</label>
+                  <input type="number" step="0.1" id="inp_per_unit_land_rate" value="0">
+                </div>
+                <div class="form-group">
+                  <label>Total Land Value (Formula)</label>
+                  <input type="text" id="inp_total_land_value" value="=B46*B47" readonly class="bg-darker">
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="section-card-title"><i class="fa-solid fa-solar-panel"></i> Solar & Roof Feasibility</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Solar Panel Can Be Installed At</label>
+                  <select id="inp_solar_install_location">
+                    <option value="Ground">Ground</option>
+                    <option value="Rooftop">Rooftop</option>
+                    <option value="None">None</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Roof Length (Sqft)</label>
+                  <input type="number" id="inp_roof_length_sqft" value="15">
+                </div>
+                <div class="form-group">
+                  <label>Roof Breadth (Sqft)</label>
+                  <input type="number" id="inp_roof_breadth_sqft" value="38">
+                </div>
+                <div class="form-group">
+                  <label>Shadow Free Roof Area (Sqft)</label>
+                  <input type="number" id="inp_shadow_free_roof_sqft" value="0">
+                </div>
+                <div class="form-group">
+                  <label>Parapet Wall Height (Sqft)</label>
+                  <input type="number" id="inp_parapet_wall_height" value="0">
+                </div>
+                <div class="form-group">
+                  <label>Cracks in Roof (Internally)</label>
+                  <input type="number" id="inp_cracks_in_roof" value="0">
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="section-card-title"><i class="fa-solid fa-tree-city"></i> Vicinity & Demographics</div>
+              <div class="form-grid-4">
+                <div class="form-group">
+                  <label>Situated in Outreach</label>
+                  <select id="inp_is_outreach">
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Population within 1KM</label>
+                  <select id="inp_population_1km">
+                    <option value="Above 5000">Above 5000</option>
+                    <option value="3000 to 5000">3000 to 5000</option>
+                    <option value="2000 to 3000">2000 to 3000</option>
+                    <option value="1000 to 2000">1000 to 2000</option>
+                    <option value="Lessthan 1000">Lessthan 1000</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Primary Schools in 1KM</label>
+                  <input type="number" id="inp_primary_schools_1km" value="1">
+                </div>
+                <div class="form-group">
+                  <label>Secondary Schools in 1KM</label>
+                  <input type="number" id="inp_secondary_schools_1km" value="1">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 5: Floors & Construction -->
+          <div class="tab-pane" id="tab-floors">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-building"></i> Floor-wise Built-up Areas (Sq Ft)</div>
+              <div class="table-responsive mb-4">
+                <table class="data-table" id="floorsTable">
+                  <thead>
+                    <tr>
+                      <th>Floor Level</th>
+                      <th>Actual Area (Sq Ft)</th>
+                      <th>Permissible Area (Sq Ft)</th>
+                      <th>Adopted Area (Sq Ft)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="floorsTableBody">
+                    <!-- Populated dynamically -->
+                  </tbody>
+                  <tfoot>
+                    <tr class="font-bold bg-darker">
+                      <td>Total</td>
+                      <td id="totalActualArea">=SUM(B52:B61)</td>
+                      <td>0</td>
+                      <td id="totalAdoptedArea">=SUM(D52:D61)</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Built-up Area Rate (Rs / Sqft)</label>
+                  <input type="number" id="inp_built_up_rate" value="0">
+                </div>
+                <div class="form-group">
+                  <label>Total Built-up Value (Formula)</label>
+                  <input type="text" value="=B63*B64" readonly class="bg-darker">
+                </div>
+                <div class="form-group">
+                  <label>Total Property Value</label>
+                  <input type="number" id="inp_total_property_value" value="0">
+                </div>
+              </div>
+
+              <div class="divider"></div>
+
+              <div class="section-card-title"><i class="fa-solid fa-door-open"></i> Accommodation & Utilities</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>No. of Floors</label>
+                  <input type="number" id="inp_no_of_floors" value="5">
+                </div>
+                <div class="form-group">
+                  <label>Toilet Available</label>
+                  <select id="inp_toilet_available">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>No. of Lifts</label>
+                  <input type="number" id="inp_no_of_lifts" value="0">
+                </div>
+                <div class="form-group">
+                  <label>Apartments Per Floor</label>
+                  <input type="number" id="inp_apartments_per_floor" value="1">
+                </div>
+                <div class="form-group">
+                  <label>Electricity Meter Installed</label>
+                  <select id="inp_electricity_meter_installed">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Electricity Meter Number</label>
+                  <input type="text" id="inp_electricity_meter_number" value="NA">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 6: Statutory & Legal Checks -->
+          <div class="tab-pane" id="tab-checks">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-gavel"></i> Statutory, Municipal & Legal Observations</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Documents Name</label>
+                  <select id="inp_documents_name">
+                    <option value="Other">Other</option>
+                    <option value="Sale-Deed">Sale-Deed</option>
+                    <option value="Agreement to sell">Agreement to sell</option>
+                    <option value="Registered Partition Deed">Registered Partition Deed</option>
+                    <option value="Loan Book/Khata">Loan Book/Khata</option>
+                    <option value="Unregistered Patta">Unregistered Patta</option>
+                    <option value="Lease Deed">Lease Deed</option>
+                    <option value="Allotment Letter">Allotment Letter</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Person Met at Site</label>
+                  <input type="text" id="inp_person_met" value="Mr. Gauarv">
+                </div>
+                <div class="form-group">
+                  <label>Relation with Property Owner</label>
+                  <select id="inp_relation_with_owner">
+                    <option value="Applicant's Son">Applicant's Son</option>
+                    <option value="Self">Self</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Son/Doughter">Son/Doughter</option>
+                    <option value="Brother/Sister">Brother/Sister</option>
+                    <option value="Parents">Parents</option>
+                    <option value="Seller">Seller</option>
+                    <option value="Neighbor">Neighbor</option>
+                    <option value="Property Broker">Property Broker</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Property Situated At</label>
+                  <select id="inp_property_situated_at">
+                    <option value="MC">MC</option>
+                    <option value="Village Abadi">Village Abadi</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Construction as per Sanction Plan</label>
+                  <select id="inp_is_sanction_plan_compliant">
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Pathway Clear</label>
+                  <select id="inp_pathway_clear">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Disaster Prone Area</label>
+                  <select id="inp_is_disaster_prone">
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Approach by Public Road</label>
+                  <select id="inp_approach_by_public_road">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Width of Public Road</label>
+                  <input type="text" id="inp_width_of_public_road" value="23 Ft Wide">
+                </div>
+                <div class="form-group">
+                  <label>Electricity, Water, Drainage in Vicinity</label>
+                  <select id="inp_utilities_in_vicinity">
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Master Plan Land Use</label>
+                  <select id="inp_approved_land_master_plan">
+                    <option value="Residential">Residential</option>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Industrial">Industrial</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Current Use of Property</label>
+                  <select id="inp_current_uses">
+                    <option value="Residential">Residential</option>
+                    <option value="Commercial">Commercial</option>
+                    <option value="Industrial">Industrial</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Valuation Opinion</label>
+                  <select id="inp_opinion_about_report">
+                    <option value="Negative">Negative</option>
+                    <option value="Positive">Positive</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>% Occupancy in 250M</label>
+                  <input type="text" id="inp_occupancy_250m" value="80%-90%">
+                </div>
+                <div class="form-group">
+                  <label>% Development in 250M</label>
+                  <input type="text" id="inp_development_250m" value="80%-90%">
+                </div>
+                <div class="form-group">
+                  <label>Property Limit</label>
+                  <select id="inp_property_limit">
+                    <option value="Within MC Limit">Within MC Limit</option>
+                    <option value="Outside City Limit">Outside City Limit</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>ADM (Marketability)</label>
+                  <select id="inp_adm">
+                    <option value="Average">Average</option>
+                    <option value="Low">Low</option>
+                    <option value="High">High</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 7: Reference & Feedback -->
+          <div class="tab-pane" id="tab-references">
+            <div class="section-card">
+              <div class="section-card-title"><i class="fa-solid fa-phone-volume"></i> Local Market Enquiry & Reference</div>
+              <div class="form-grid-3">
+                <div class="form-group">
+                  <label>Reference Name</label>
+                  <input type="text" id="inp_reference_name" value="Local Enquiry">
+                </div>
+                <div class="form-group">
+                  <label>Reference Mobile Number</label>
+                  <input type="text" id="inp_reference_mobile" value="9540637533">
+                </div>
+                <div class="form-group">
+                  <label>Market Feedback Rate</label>
+                  <input type="text" id="inp_feedback" value="1 L to 1.10 L per Sqyds">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 8: 13-Point Remarks -->
+          <div class="tab-pane" id="tab-remarks">
+            <div class="section-card">
+              <div class="section-card-title">
+                <i class="fa-solid fa-clipboard-list"></i> Detailed 13-Point Technical Valuation Remarks
+              </div>
+              <p class="text-xs text-muted mb-2">
+                This comprehensive narrative incorporates title deed chains (GPA/ATS dates, Seller/Purchaser), site visit observations, deviations, MC limits, and Geo-coordinates.
+              </p>
+              <div class="form-group">
+                <textarea id="inp_remarks" rows="16" class="font-mono text-sm"></textarea>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+    </div>
+  </main>
+
+  <!-- AI Settings Modal -->
+  <div class="modal-overlay" id="settingsModal" style="display:none;">
+    <div class="modal-card glass-panel">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fa-solid fa-robot text-accent"></i>
+          <h3>AI & OCR Engine Settings</h3>
+        </div>
+        <button class="btn-icon" id="btnCloseSettings"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group mb-3">
+          <label for="modalApiKey">Gemini API Key (Google AI Studio)</label>
+          <input type="password" id="modalApiKey" placeholder="AIzaSy...">
+          <p class="text-xs text-muted mt-1">Leave empty to use built-in offline hybrid extraction engine.</p>
+        </div>
+        <div class="form-group mb-3">
+          <label for="modalModelSelect">Multimodal Vision Model</label>
+          <select id="modalModelSelect">
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest & High Accuracy)</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btnCancelSettings">Cancel</button>
+        <button class="btn btn-primary" id="btnSaveSettings"><i class="fa-solid fa-check"></i> Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

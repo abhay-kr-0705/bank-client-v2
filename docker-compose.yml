@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  banktech-ocr:
+    build: .
+    container_name: banktech_valuation_ocr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
