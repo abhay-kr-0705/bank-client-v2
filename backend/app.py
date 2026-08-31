@@ -157,6 +157,27 @@ def update_grid_cell(req: CellUpdateRequest):
     session.update_cell_value(req.coordinate, req.value)
     return {"success": True, "updated": req.coordinate, "value": req.value}
 
+@app.post("/api/session/clear-data")
+def clear_session_data(session_id: Optional[str] = Query("default_session")):
+    """Clears data values from the live preview grid while preserving template headers and formulas."""
+    session = get_session(session_id)
+    grid = session.clear_all_data()
+    return {"success": True, "grid": grid, "report_data": session.report_data.dict()}
+
+@app.post("/api/session/add-row")
+def add_grid_row(session_id: Optional[str] = Query("default_session")):
+    """Adds a new row to the active spreadsheet grid."""
+    session = get_session(session_id)
+    grid = session.add_row()
+    return {"success": True, "grid": grid}
+
+@app.post("/api/session/add-column")
+def add_grid_column(session_id: Optional[str] = Query("default_session")):
+    """Adds a new column to the active spreadsheet grid."""
+    session = get_session(session_id)
+    grid = session.add_column()
+    return {"success": True, "grid": grid}
+
 @app.post("/api/session/download-excel")
 def download_session_excel(session_id: Optional[str] = Query("default_session")):
     """Generates and downloads the final populated Excel file with 100% format preservation."""

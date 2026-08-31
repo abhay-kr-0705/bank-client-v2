@@ -239,6 +239,86 @@ document.addEventListener('DOMContentLoaded', () => {
     table.appendChild(tbody);
     container.innerHTML = '';
     container.appendChild(table);
+
+    // Update bottom status info
+    const statsElem = document.getElementById('gridStatsText');
+    if (statsElem) {
+      statsElem.textContent = `${gridData.max_row} Rows • ${gridData.max_col} Columns • Formula Engine Active`;
+    }
+  }
+
+  // Grid Modification Actions: Add Row, Add Col, Clear Data
+  const btnAddGridRow = document.getElementById('btnAddGridRow');
+  const btnAddGridCol = document.getElementById('btnAddGridCol');
+  const btnClearGridData = document.getElementById('btnClearGridData');
+  const btnSheet1 = document.getElementById('btnSheet1');
+  const btnSheet2 = document.getElementById('btnSheet2');
+
+  if (btnAddGridRow) {
+    btnAddGridRow.addEventListener('click', async () => {
+      showToast('Adding new row to Excel grid...', 'info');
+      try {
+        const res = await fetch(`/api/session/add-row?session_id=${currentSessionId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success && data.grid) {
+          currentGridData = data.grid;
+          renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+          showToast(`Row ${currentGridData.max_row} added!`, 'success');
+        }
+      } catch (e) {
+        showToast('Failed to add row', 'error');
+      }
+    });
+  }
+
+  if (btnAddGridCol) {
+    btnAddGridCol.addEventListener('click', async () => {
+      showToast('Adding new column to Excel grid...', 'info');
+      try {
+        const res = await fetch(`/api/session/add-column?session_id=${currentSessionId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success && data.grid) {
+          currentGridData = data.grid;
+          renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+          showToast(`Column added! Total: ${currentGridData.max_col}`, 'success');
+        }
+      } catch (e) {
+        showToast('Failed to add column', 'error');
+      }
+    });
+  }
+
+  if (btnClearGridData) {
+    btnClearGridData.addEventListener('click', async () => {
+      if (!confirm('Are you sure you want to clear all data cells? (Headers, labels, and formulas will be preserved)')) return;
+      try {
+        const res = await fetch(`/api/session/clear-data?session_id=${currentSessionId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success && data.grid) {
+          currentGridData = data.grid;
+          currentReportData = data.report_data;
+          renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+          populateFormWithData(currentReportData);
+          showToast('Data cells cleared. Template structure & formulas preserved.', 'info');
+        }
+      } catch (e) {
+        showToast('Failed to clear data', 'error');
+      }
+    });
+  }
+
+  if (btnSheet1 && btnSheet2) {
+    btnSheet1.addEventListener('click', () => {
+      btnSheet1.classList.add('active');
+      btnSheet2.classList.remove('active');
+      if (currentGridData) renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+    });
+
+    btnSheet2.addEventListener('click', () => {
+      btnSheet2.classList.add('active');
+      btnSheet1.classList.remove('active');
+      showToast('Sheet2 displays predefined bank validation dropdown lists.', 'info');
+    });
   }
 
   function selectCell(coord, val, tdElem, container) {

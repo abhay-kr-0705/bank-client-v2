@@ -3,6 +3,7 @@ import shutil
 import zipfile
 import uuid
 import openpyxl
+from openpyxl.utils import get_column_letter
 from typing import Dict, Any, List, Optional
 from .models import ReportData
 from .template_engine import TemplateEngine
@@ -16,8 +17,8 @@ os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 class SessionManager:
     """
-    Manages interactive case sessions, custom templates, incremental multi-file ingestion,
-    ZIP unpacking, real-time spreadsheet grid state, and Excel export.
+    Manages interactive case sessions with dynamic row/col additions,
+    clear-data actions, multi-sheet switching, and Excel formula generation.
     """
 
     def __init__(self, session_id: Optional[str] = None):
@@ -40,16 +41,21 @@ class SessionManager:
         self.report_data = ReportData()
         self.uploaded_files = []
         self.cell_overrides = {}
+        self.extra_rows = 0
+        self.extra_cols = 0
+        self.active_sheet_index = 0
 
     def _sanitize_active_template(self):
         engine = TemplateEngine(self.template_path)
         engine.sanitize_template(self.sanitized_template_path)
 
     def set_custom_template(self, uploaded_file_path: str) -> Dict[str, Any]:
-        """Sets a new custom template uploaded by the user, sanitizes it, and returns grid metadata."""
+        """Sets a new custom template uploaded by user, sanitizes it, and returns grid metadata."""
         shutil.copyfile(uploaded_file_path, self.template_path)
         self._sanitize_active_template()
         self.cell_overrides.clear()
+        self.extra_rows = 0
+        self.extra_cols = 0
         
         engine = TemplateEngine(self.template_path)
         clean_grid = engine.export_grid_json()
@@ -64,13 +70,31 @@ class SessionManager:
         shutil.copyfile(DEFAULT_TEMPLATE_PATH, self.template_path)
         self._sanitize_active_template()
         self.cell_overrides.clear()
+        self.extra_rows = 0
+        self.extra_cols = 0
         
         engine = TemplateEngine(self.template_path)
         return {
             "success": True,
-            "template_name": "base_template.xlsx (India Shelter Standard)",
+            "template_name": "Base Template (India Shelter)",
             "grid": engine.export_grid_json()
         }
+
+    def clear_all_data(self) -> Dict[str, Any]:
+        """Clears all extracted/entered data while keeping template structure, formulas, and headers."""
+        self.report_data = ReportData()
+        self.cell_overrides.clear()
+        return self.get_live_grid_preview()
+
+    def add_row(self) -> Dict[str, Any]:
+        """Adds a new row to the active spreadsheet grid."""
+        self.extra_rows += 1
+        return self.get_live_grid_preview()
+
+    def add_column(self) -> Dict[str, Any]:
+        """Adds a new column to the active spreadsheet grid."""
+        self.extra_cols += 1
+        return self.get_live_grid_preview()
 
     def get_template_clean_preview(self) -> Dict[str, Any]:
         """Returns the blank sanitized template grid for in-browser viewing."""
@@ -117,7 +141,7 @@ class SessionManager:
         # Keep file list updated
         for f in all_new_files:
             fname = os.path.basename(f)
-            sz = os.path.getsize(f)
+            sz = os.path.getsize(f) if os.path.exists(f) else 0
             if not any(item["path"] == f for item in self.uploaded_files):
                 self.uploaded_files.append({
                     "filename": fname,
@@ -153,16 +177,67 @@ class SessionManager:
         self.cell_overrides[coord] = value
 
     def get_live_grid_preview(self) -> Dict[str, Any]:
-        """Returns the populated spreadsheet grid with current session values and formulas."""
+        """Returns the populated spreadsheet grid with current session values, formulas, extra rows/cols."""
         cell_values = SmartFieldMapper.map_to_cells(self.report_data)
         # Apply manual web overrides
         cell_values.update(self.cell_overrides)
 
         engine = TemplateEngine(self.sanitized_template_path)
-        return engine.export_grid_json(filled_values=cell_values)
+        base_grid = engine.export_grid_json(filled_values=cell_values)
+        
+        # Expand extra rows if added by user
+        current_rows = base_grid["rows"]
+        max_c = base_grid["max_col"] + self.extra_cols
+        
+        # Add extra columns to existing rows
+        if self.extra_cols > 0:
+            for r_idx, row_obj in enumerate(current_rows):
+                start_c = len(row_obj["cells"]) + 1
+                for c in range(start_c, max_c + 1):
+                    c_letter = get_column_letter(c)
+                    coord = f"{c_letter}{row_obj['row']}"
+                    val = self.cell_overrides.get(coord, "")
+                    row_obj["cells"].append({
+                        "col": c,
+                        "col_letter": c_letter,
+                        "row": row_obj["row"],
+                        "coord": coord,
+                        "value": str(val),
+                        "is_formula": str(val).startswith("="),
+                        "formula": str(val) if str(val).startswith("=") else None,
+                        "is_header": False,
+                        "is_bold": False,
+                        "fill_color": None
+                    })
+
+        # Add extra rows
+        start_r = len(current_rows) + 1
+        for r in range(start_r, start_r + self.extra_rows):
+            cols_data = []
+            for c in range(1, max_c + 1):
+                c_letter = get_column_letter(c)
+                coord = f"{c_letter}{r}"
+                val = self.cell_overrides.get(coord, "")
+                cols_data.append({
+                    "col": c,
+                    "col_letter": c_letter,
+                    "row": r,
+                    "coord": coord,
+                    "value": str(val),
+                    "is_formula": str(val).startswith("="),
+                    "formula": str(val) if str(val).startswith("=") else None,
+                    "is_header": False,
+                    "is_bold": False,
+                    "fill_color": None
+                })
+            current_rows.append({"row": r, "cells": cols_data})
+
+        base_grid["max_row"] = len(current_rows)
+        base_grid["max_col"] = max_c
+        return base_grid
 
     def export_final_excel(self, output_path: str) -> str:
-        """Generates the final Excel file preserving all original styling and formulas."""
+        """Generates the final Excel file preserving all original styling, formulas, and custom edits."""
         wb = openpyxl.load_workbook(self.sanitized_template_path, data_only=False)
         ws = wb.active
 
@@ -172,9 +247,9 @@ class SessionManager:
         for coord, val in cell_values.items():
             try:
                 cell = ws[coord]
-                # If template already had a formula and we have a non-formula override, preserve formula unless numeric
+                # If template already had a formula and we have a non-formula override, preserve formula
                 if cell.value and str(cell.value).startswith("=") and not str(val).startswith("="):
-                    continue  # Keep original Excel formula
+                    continue
                 cell.value = val
             except Exception as e:
                 print(f"[Export Cell Warning: {coord} -> {e}]")
@@ -184,7 +259,7 @@ class SessionManager:
         wb.close()
         return output_path
 
-# Global Session Store (singleton or per-session)
+# Global Session Store
 GLOBAL_SESSIONS: Dict[str, SessionManager] = {}
 
 def get_session(session_id: Optional[str] = None) -> SessionManager:

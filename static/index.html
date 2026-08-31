@@ -105,17 +105,20 @@
           </div>
         </div>
 
-        <!-- Direct Server Folder Path Input -->
+        <!-- Direct Server Folder Path Input (Local Power-User Mode) -->
         <div class="path-ingest">
-          <label for="folderPathInput"><i class="fa-solid fa-laptop-code"></i> Direct Workspace Folder Path</label>
+          <label for="folderPathInput" class="tooltip-label">
+            <span><i class="fa-solid fa-laptop-code"></i> Direct Workspace Folder Path</span>
+            <span class="info-tooltip-badge" title="Local Server Mode: If running on your PC, enter an absolute local folder path to process gigabytes of files instantly from disk without browser upload limits."><i class="fa-solid fa-circle-question text-accent"></i></span>
+          </label>
           <div class="input-group">
-            <input type="text" id="folderPathInput" placeholder="d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR" value="d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR">
+            <input type="text" id="folderPathInput" placeholder="e.g. C:\MyValuationProjects\Case_101" value="">
             <button class="btn btn-accent" id="btnRunFolderPath">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Extract & Map
             </button>
           </div>
           <p class="text-xs text-muted mt-2">
-            <i class="fa-solid fa-circle-info"></i> Processes deeds, GPS images, field notes, and cross-references data against active template.
+            <i class="fa-solid fa-circle-info"></i> For local use: Reads files directly from local storage.
           </p>
         </div>
       </div>
@@ -183,7 +186,7 @@
         <div class="pane-header editor-header">
           <div class="case-meta">
             <span class="badge-pill" id="casePillBadge"><i class="fa-solid fa-id-card"></i> Case: None</span>
-            <span class="badge-pill bg-success-soft" id="accuracyBadge"><i class="fa-solid fa-circle-check"></i> Live Formulas: Active</span>
+            <span class="badge-pill bg-success-soft" id="accuracyBadge"><i class="fa-solid fa-circle-check"></i> Excel Engine: 100% Fidelity</span>
           </div>
           <div class="editor-actions">
             <button class="btn btn-sm btn-outline" id="btnExportJson" title="Export Raw JSON Data">
@@ -197,7 +200,7 @@
 
         <!-- Navigation Tabs for Report Sections -->
         <nav class="editor-tabs" id="editorTabs">
-          <button class="tab-btn active" data-tab="tab-grid"><i class="fa-solid fa-table-cells text-success"></i> Live Excel Grid</button>
+          <button class="tab-btn active" data-tab="tab-grid"><i class="fa-solid fa-file-excel text-success"></i> Live Excel Grid</button>
           <button class="tab-btn" data-tab="tab-overview"><i class="fa-solid fa-user-tie"></i> Overview & Applicant</button>
           <button class="tab-btn" data-tab="tab-address"><i class="fa-solid fa-location-dot"></i> Address Comparison</button>
           <button class="tab-btn" data-tab="tab-boundaries"><i class="fa-solid fa-compass"></i> Boundaries & Site</button>
@@ -211,22 +214,57 @@
         <!-- Tab Contents -->
         <div class="tab-content-area" id="tabContentArea">
 
-          <!-- TAB 0: LIVE EXCEL SPREADSHEET GRID -->
+          <!-- TAB 0: AUTHENTIC MICROSOFT EXCEL SPREADSHEET GRID -->
           <div class="tab-pane active" id="tab-grid">
-            <div class="grid-card">
-              <div class="grid-toolbar">
-                <div class="formula-bar">
-                  <span class="cell-coord-badge" id="activeCellCoord">A1</span>
-                  <input type="text" id="formulaBarInput" placeholder="Select any cell to view or edit value..." class="formula-input">
+            <div class="excel-window-card">
+              <!-- Excel Quick Ribbon Actions -->
+              <div class="excel-ribbon-bar">
+                <div class="excel-brand-badge">
+                  <i class="fa-solid fa-file-excel"></i>
+                  <span>Excel Live Studio</span>
                 </div>
-                <div class="grid-actions">
-                  <span class="text-xs text-muted"><i class="fa-solid fa-circle-info"></i> Click any cell to edit &bull; Formulas auto-calculate</span>
+                <div class="excel-tools-group">
+                  <button class="btn-excel-tool" id="btnAddGridRow" title="Insert a new row below">
+                    <i class="fa-solid fa-plus"></i> Add Row
+                  </button>
+                  <button class="btn-excel-tool" id="btnAddGridCol" title="Insert a new column to the right">
+                    <i class="fa-solid fa-table-columns"></i> Add Column
+                  </button>
+                  <button class="btn-excel-tool btn-excel-danger" id="btnClearGridData" title="Clear all data values while preserving headers & formulas">
+                    <i class="fa-solid fa-eraser"></i> Clear Data
+                  </button>
                 </div>
               </div>
+
+              <!-- Excel Formula Bar with fx symbol -->
+              <div class="excel-formula-bar">
+                <div class="excel-name-box" id="activeCellCoord">A1</div>
+                <div class="excel-fx-symbol">
+                  <span>fx</span>
+                </div>
+                <input type="text" id="formulaBarInput" placeholder="Click any cell or type a value/formula (e.g. =B46*B47) and press Enter" class="excel-formula-input">
+              </div>
+
+              <!-- Scrollable Spreadsheet Viewport -->
               <div class="spreadsheet-viewport" id="spreadsheetViewport">
                 <div class="empty-state-card p-5">
                   <i class="fa-solid fa-spinner fa-spin fa-2x text-accent mb-3"></i>
                   <p>Loading interactive spreadsheet grid...</p>
+                </div>
+              </div>
+
+              <!-- Excel Bottom Sheet Tabs Bar -->
+              <div class="excel-sheets-bar">
+                <div class="sheet-tabs-list">
+                  <button class="sheet-tab active" id="btnSheet1">
+                    <i class="fa-regular fa-file-lines"></i> Sheet1 (Report)
+                  </button>
+                  <button class="sheet-tab" id="btnSheet2">
+                    <i class="fa-solid fa-list-check"></i> Sheet2 (Dropdown Lookups)
+                  </button>
+                </div>
+                <div class="sheet-status-info text-xs text-muted">
+                  <span id="gridStatsText">107 Rows &bull; 4 Columns &bull; Active</span>
                 </div>
               </div>
             </div>
