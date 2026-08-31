@@ -321,6 +321,37 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Collapsible Ingestion Deck
+  const btnToggleIngestDeck = document.getElementById('btnToggleIngestDeck');
+  const toggleIngestIcon = document.getElementById('toggleIngestIcon');
+  const ingestCard = document.querySelector('.ingest-card');
+
+  if (btnToggleIngestDeck && ingestCard) {
+    btnToggleIngestDeck.addEventListener('click', () => {
+      ingestCard.classList.toggle('collapsed');
+      const isCollapsed = ingestCard.classList.contains('collapsed');
+      if (toggleIngestIcon) {
+        toggleIngestIcon.className = isCollapsed ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up';
+      }
+    });
+  }
+
+  // Expand Grid View Toggle
+  const btnToggleExpandGrid = document.getElementById('btnToggleExpandGrid');
+  const expandGridIcon = document.getElementById('expandGridIcon');
+  const expandGridText = document.getElementById('expandGridText');
+  const workspaceArea = document.getElementById('workspaceArea');
+
+  if (btnToggleExpandGrid && workspaceArea) {
+    btnToggleExpandGrid.addEventListener('click', () => {
+      workspaceArea.classList.toggle('grid-expanded');
+      const isExpanded = workspaceArea.classList.contains('grid-expanded');
+      if (expandGridIcon) expandGridIcon.className = isExpanded ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+      if (expandGridText) expandGridText.textContent = isExpanded ? 'Restore View' : 'Expand View';
+      showToast(isExpanded ? 'Spreadsheet expanded to full workspace' : 'Workspace layout restored', 'info');
+    });
+  }
+
   function selectCell(coord, val, tdElem, container) {
     selectedCellCoord = coord;
     activeCellCoord.textContent = coord;

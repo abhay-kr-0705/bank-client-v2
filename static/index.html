@@ -80,10 +80,13 @@
           <button class="btn-chip active" id="btnLoadSunitaCase">
             <i class="fa-solid fa-bolt text-warning"></i> Load "SUNITA DEVI BACHHAN KUMAR"
           </button>
+          <button class="btn btn-sm btn-outline btn-icon" id="btnToggleIngestDeck" title="Collapse / Expand Ingestion Box">
+            <i class="fa-solid fa-chevron-up" id="toggleIngestIcon"></i>
+          </button>
         </div>
       </div>
 
-      <div class="upload-split">
+      <div class="upload-split" id="ingestBody">
         <!-- Drag and Drop Dropzone -->
         <div class="dropzone" id="fileDropzone">
           <input type="file" id="fileInput" multiple webkitdirectory directory style="display:none;">
@@ -153,7 +156,7 @@
     <div class="workspace-grid" id="workspaceArea">
 
       <!-- Left Column: Source Documents & Live Inspector -->
-      <aside class="left-pane glass-panel">
+      <aside class="left-pane glass-panel" id="leftDocsPane">
         <div class="pane-header">
           <div class="pane-title">
             <i class="fa-solid fa-folder-tree text-accent"></i>
@@ -182,7 +185,7 @@
       </aside>
 
       <!-- Right Column: Interactive 106-Field Valuation Editor & Live Excel Grid -->
-      <main class="right-pane glass-panel">
+      <main class="right-pane glass-panel" id="rightEditorPane">
         <div class="pane-header editor-header">
           <div class="case-meta">
             <span class="badge-pill" id="casePillBadge"><i class="fa-solid fa-id-card"></i> Case: None</span>
@@ -216,7 +219,7 @@
 
           <!-- TAB 0: AUTHENTIC MICROSOFT EXCEL SPREADSHEET GRID -->
           <div class="tab-pane active" id="tab-grid">
-            <div class="excel-window-card">
+            <div class="excel-window-card" id="excelWindowCard">
               <!-- Excel Quick Ribbon Actions -->
               <div class="excel-ribbon-bar">
                 <div class="excel-brand-badge">
@@ -233,6 +236,9 @@
                   <button class="btn-excel-tool btn-excel-danger" id="btnClearGridData" title="Clear all data values while preserving headers & formulas">
                     <i class="fa-solid fa-eraser"></i> Clear Data
                   </button>
+                  <button class="btn-excel-tool" id="btnToggleExpandGrid" title="Toggle Fullscreen Grid Mode">
+                    <i class="fa-solid fa-expand" id="expandGridIcon"></i> <span id="expandGridText">Expand View</span>
+                  </button>
                 </div>
               </div>
 
@@ -245,7 +251,7 @@
                 <input type="text" id="formulaBarInput" placeholder="Click any cell or type a value/formula (e.g. =B46*B47) and press Enter" class="excel-formula-input">
               </div>
 
-              <!-- Scrollable Spreadsheet Viewport -->
+              <!-- Scrollable Spreadsheet Viewport (Both Horizontal & Vertical) -->
               <div class="spreadsheet-viewport" id="spreadsheetViewport">
                 <div class="empty-state-card p-5">
                   <i class="fa-solid fa-spinner fa-spin fa-2x text-accent mb-3"></i>
@@ -270,8 +276,8 @@
             </div>
           </div>
 
-          <!-- TAB 1: Overview & Applicant -->
-          <div class="tab-pane active" id="tab-overview">
+          <!-- TAB 1: Overview & Applicant (Only visible when clicked) -->
+          <div class="tab-pane" id="tab-overview">
             <div class="section-card">
               <div class="section-card-title"><i class="fa-solid fa-circle-info"></i> Report & Applicant Identification</div>
               <div class="form-grid-3">

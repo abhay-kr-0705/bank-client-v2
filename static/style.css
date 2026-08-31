@@ -1230,16 +1230,49 @@ body.dark-theme .excel-formula-input {
   outline: none;
 }
 
-/* Spreadsheet Viewport */
+/* Spreadsheet Viewport with Visible Horizontal & Vertical Scrollbars */
 .spreadsheet-viewport {
   flex: 1;
   overflow: auto;
   position: relative;
+  max-height: 560px;
+  min-height: 460px;
   background: #ffffff;
+  scrollbar-width: auto;
 }
 
 body.dark-theme .spreadsheet-viewport {
   background: #0f172a;
+}
+
+.spreadsheet-viewport::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.spreadsheet-viewport::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+body.dark-theme .spreadsheet-viewport::-webkit-scrollbar-track {
+  background: #111827;
+}
+
+.spreadsheet-viewport::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 5px;
+}
+
+body.dark-theme .spreadsheet-viewport::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.spreadsheet-viewport::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+body.dark-theme .spreadsheet-viewport::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }
 
 .modal-lg {
@@ -1251,10 +1284,11 @@ body.dark-theme .spreadsheet-viewport {
   height: 520px;
 }
 
-/* Spreadsheet Table Styling */
+/* Spreadsheet Table Styling with Defined Column Widths */
 .excel-grid-table {
   border-collapse: collapse;
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   font-size: 0.82rem;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   user-select: text;
@@ -1263,12 +1297,60 @@ body.dark-theme .spreadsheet-viewport {
 .excel-grid-table th,
 .excel-grid-table td {
   border: 1px solid #d4d4d4;
-  padding: 0.3rem 0.55rem;
-  min-width: 110px;
-  max-width: 320px;
+  padding: 0.35rem 0.65rem;
+  min-width: 120px;
   white-space: pre-wrap;
   word-break: break-word;
   vertical-align: middle;
+}
+
+.excel-grid-table td:nth-child(2) { /* Col A: Field Headers */
+  min-width: 270px;
+  max-width: 380px;
+}
+
+.excel-grid-table td:nth-child(3) { /* Col B: Field Values */
+  min-width: 220px;
+}
+
+.excel-grid-table td:nth-child(4) { /* Col C: Secondary Headers */
+  min-width: 250px;
+  max-width: 360px;
+}
+
+.excel-grid-table td:nth-child(5) { /* Col D: Secondary Values */
+  min-width: 220px;
+}
+
+/* Ingestion Deck Collapsible Mode */
+.ingest-card.collapsed #ingestBody,
+.ingest-card.collapsed #pipelineTracker {
+  display: none !important;
+}
+
+.ingest-card.collapsed {
+  padding: 0.85rem 1.5rem;
+}
+
+.ingest-card.collapsed .ingest-header {
+  margin-bottom: 0;
+}
+
+/* Expanded Grid Mode (Takes 100% of workspace) */
+.workspace-grid.grid-expanded {
+  grid-template-columns: 1fr !important;
+}
+
+.workspace-grid.grid-expanded #leftDocsPane {
+  display: none !important;
+}
+
+.workspace-grid.grid-expanded .excel-window-card {
+  height: calc(100vh - 170px);
+}
+
+.workspace-grid.grid-expanded .spreadsheet-viewport {
+  max-height: none;
 }
 
 body.dark-theme .excel-grid-table th,
