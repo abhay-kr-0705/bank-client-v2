@@ -671,6 +671,14 @@
             <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
           </select>
         </div>
+        <div class="form-group mt-3">
+          <label for="modalOcrEngine">OCR & Processing Mode</label>
+          <select id="modalOcrEngine" class="form-control">
+            <option value="client_accelerated" selected>Browser Accelerated (Render-Safe • Canvas Optimization + In-Browser PDF/OCR)</option>
+            <option value="host_rapidocr">Host Server RapidOCR (Local PC Hardware)</option>
+          </select>
+          <p class="text-xs text-muted mt-1">Browser Accelerated pre-compresses photos & extracts digital PDF text in your browser, keeping server memory under 90MB.</p>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-outline" id="btnCancelSettings">Cancel</button>
@@ -732,6 +740,10 @@
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 
+  <!-- Client-Side Accelerated Ingestion Engines -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

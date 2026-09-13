@@ -124,17 +124,21 @@ def get_template_clean_preview(session_id: Optional[str] = Query("default_sessio
     session = get_session(session_id)
     return session.get_template_clean_preview()
 
+import json
+
 # ----------------- Incremental File & OCR Ingestion ----------------- #
 
 @app.post("/api/session/upload-files")
 async def upload_session_files(
     files: List[UploadFile] = File(...),
     session_id: Optional[str] = Form("default_session"),
-    api_key: Optional[str] = Form(None)
+    api_key: Optional[str] = Form(None),
+    client_text: Optional[str] = Form(None)
 ):
     """
     Ingests 1 or more files (PDF, DOCX, JPG, PNG, CSV, ZIP, XLSX) incrementally into session.
     Extracts text, performs OCR, updates report data, and returns live filled spreadsheet grid.
+    Supports browser pre-extracted text to dramatically reduce Render Free Tier CPU/RAM consumption.
     """
     session = get_session(session_id)
     saved_paths = []
@@ -145,6 +149,20 @@ async def upload_session_files(
         with open(target_path, "wb") as buffer:
             shutil.copyfileobj(f.file, buffer)
         saved_paths.append(target_path)
+
+    # Save any client pre-extracted text as sidecars
+    if client_text:
+        try:
+            client_dict = json.loads(client_text)
+            if isinstance(client_dict, dict):
+                for fname, txt in client_dict.items():
+                    if txt and str(txt).strip():
+                        clean_fname = os.path.basename(fname)
+                        txt_path = os.path.join(session.docs_dir, f"{clean_fname}.client.txt")
+                        with open(txt_path, "w", encoding="utf-8", errors="ignore") as tf:
+                            tf.write(str(txt).strip())
+        except Exception as e:
+            print(f"[Client Text Warning: {e}]")
 
     active_api_key = api_key or SERVER_CONFIG["gemini_api_key"]
     model_name = SERVER_CONFIG["model_name"]

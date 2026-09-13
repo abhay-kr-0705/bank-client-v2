@@ -74,7 +74,19 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, 
     """
     Extracts digital text and extracts page images.
     If a page has zero digital text (scanned PDF), runs local RapidOCR on the page pixmap.
+    Uses memory-efficient 110 DPI rendering to prevent Render Free Tier OOM crashes.
     """
+    # Check for browser client pre-extracted text first
+    sidecar_client = filepath + ".client.txt"
+    if os.path.exists(sidecar_client):
+        try:
+            with open(sidecar_client, "r", encoding="utf-8", errors="ignore") as sc:
+                client_text = sc.read().strip()
+            if client_text:
+                return client_text, []
+        except Exception:
+            pass
+
     text_content = []
     page_images = []
     try:
@@ -87,13 +99,14 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, 
             if txt.strip():
                 text_content.append(f"--- [Page {page_num + 1}] ---\n{txt}")
             else:
-                # Scanned page: render pixmap and run local OfflineOCREngine
-                pix = page.get_pixmap(dpi=150)
+                # Scanned page: render pixmap at memory-efficient 110 DPI
+                pix = page.get_pixmap(dpi=110)
                 img_bytes = pix.tobytes("jpeg")
                 ocr_text, _ = OfflineOCREngine.extract_text_from_image_bytes(img_bytes)
                 if ocr_text.strip():
                     text_content.append(f"--- [Page {page_num + 1} (OCR)] ---\n{ocr_text}")
-                page_images.append(img_bytes)
+                if len(page_images) < 2:
+                    page_images.append(img_bytes)
         doc.close()
     except Exception as e:
         text_content.append(f"[PDF Error: {e}]")
@@ -139,24 +152,36 @@ class CaseExtractor:
             has_exif_gps=bool(gps)
         )
 
-        # Document Processor
-        if ext == ".xlsx":
-            pass
-        elif ext == ".docx":
-            text = parse_docx_file(file_path)
-        elif ext == ".pdf":
-            text, images = parse_pdf_text_and_images(file_path, max_pages=20)
-        elif ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
-            with open(file_path, "rb") as img_f:
-                img_data = img_f.read()
-                images.append(img_data)
-                # Run local OCR on image only if it is not purely a site photo
-                if classification.get("category") != "SITE_PHOTO_IMAGE":
-                    ocr_t, _ = OfflineOCREngine.extract_text_from_image_bytes(img_data)
-                    if ocr_t.strip():
-                        text = f"[OCR from {filename}]:\n{ocr_t}"
-        elif ext in [".txt", ".csv", ".log"]:
-            text = parse_text_or_csv_file(file_path)
+        # Check for browser client pre-extracted text
+        sidecar_client = file_path + ".client.txt"
+        if os.path.exists(sidecar_client):
+            try:
+                with open(sidecar_client, "r", encoding="utf-8", errors="ignore") as sc:
+                    client_t = sc.read().strip()
+                if client_t:
+                    text = f"[{classification.get('label', 'Document')} - Client Accelerated]:\n{client_t}"
+            except Exception:
+                pass
+
+        # If text was not provided by client, run standard local extraction
+        if not text:
+            if ext == ".xlsx":
+                pass
+            elif ext == ".docx":
+                text = parse_docx_file(file_path)
+            elif ext == ".pdf":
+                text, images = parse_pdf_text_and_images(file_path, max_pages=20)
+            elif ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
+                with open(file_path, "rb") as img_f:
+                    img_data = img_f.read()
+                    images.append(img_data)
+                    # Run local OCR on image only if it is not purely a site photo
+                    if classification.get("category") != "SITE_PHOTO_IMAGE":
+                        ocr_t, _ = OfflineOCREngine.extract_text_from_image_bytes(img_data)
+                        if ocr_t.strip():
+                            text = f"[OCR from {filename}]:\n{ocr_t}"
+            elif ext in [".txt", ".csv", ".log"]:
+                text = parse_text_or_csv_file(file_path)
 
         return {
             "filename": filename,
