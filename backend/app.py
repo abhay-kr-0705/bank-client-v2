@@ -47,6 +47,9 @@ SERVER_CONFIG = {
     "model_name": "gemini-2.5-flash"
 }
 
+# Global Lock to serialize document processing and prevent OOM on Render Free Tier (512MB RAM cap)
+PROCESSING_LOCK = threading.Lock()
+
 class FolderProcessRequest(BaseModel):
     folder_path: str
     session_id: Optional[str] = "default_session"
@@ -80,9 +83,10 @@ class ReportUpdateRequest(BaseModel):
 def get_health():
     return {
         "status": "healthy",
-        "engine": "Offline RapidOCR & Local Semantic Engine",
-        "has_api_key": False,
-        "model_name": "local-offline"
+        "engine": "Offline RapidOCR & Browser Accelerated Engine",
+        "render_tier": "Free Tier Safe (<512MB RAM)",
+        "has_api_key": bool(SERVER_CONFIG["gemini_api_key"]),
+        "model_name": SERVER_CONFIG["model_name"]
     }
 
 @app.post("/api/settings")
@@ -168,14 +172,18 @@ async def upload_session_files(
     model_name = SERVER_CONFIG["model_name"]
 
     def bg_worker():
-        try:
-            session.ingest_documents_incrementally(
-                saved_paths,
-                api_key=active_api_key,
-                model_name=model_name
-            )
-        except Exception as e:
-            session.update_progress(step=1, percent=0, message=f"Extraction Error: {str(e)}", state="error")
+        with PROCESSING_LOCK:
+            try:
+                session.ingest_documents_incrementally(
+                    saved_paths,
+                    api_key=active_api_key,
+                    model_name=model_name
+                )
+            except Exception as e:
+                session.update_progress(step=1, percent=0, message=f"Extraction Error: {str(e)}", state="error")
+            finally:
+                import gc
+                gc.collect()
 
     threading.Thread(target=bg_worker, daemon=True).start()
 

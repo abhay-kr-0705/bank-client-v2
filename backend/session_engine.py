@@ -200,10 +200,10 @@ class SessionManager:
         current_doc_paths = []
         for root, _, files in os.walk(self.docs_dir):
             for f in sorted(files):
-                if not f.startswith("~$") and not f.startswith(".") and not f.lower().endswith(".xlsx"):
+                if not f.startswith("~$") and not f.startswith(".") and not f.lower().endswith(".xlsx") and not f.endswith(".client.txt"):
                     current_doc_paths.append(os.path.join(root, f))
 
-        new_paths = [p for p in saved_paths if not p.lower().endswith(".xlsx") and not os.path.basename(p).startswith("~$")]
+        new_paths = [p for p in saved_paths if not p.lower().endswith(".xlsx") and not os.path.basename(p).startswith("~$") and not p.endswith(".client.txt")]
         docs_to_process = new_paths if new_paths else current_doc_paths
 
         def progress_cb(step: int, percent: int, message: str, current_file: str = "", processed: int = 0, total: int = 0):
@@ -228,7 +228,7 @@ class SessionManager:
         self.uploaded_files.clear()
         for root, _, files in os.walk(self.docs_dir):
             for f in sorted(files):
-                if not f.startswith("~$") and not f.startswith("."):
+                if not f.startswith("~$") and not f.startswith(".") and not f.endswith(".client.txt"):
                     full_p = os.path.join(root, f)
                     sz = os.path.getsize(full_p)
                     self.uploaded_files.append({

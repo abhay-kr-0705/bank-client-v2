@@ -123,18 +123,32 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast(`Switched to ${currentIsLight ? 'Dark' : 'Light'} Mode`, 'info');
   }
 
-  // 1. Initial Setup & Health Check
+  // 1. Initial Setup & Health Check with Cold-Start Detection
   async function checkBackendHealth() {
+    const coldTimer = setTimeout(() => {
+      engineStatusText.textContent = `Waking up Cloud Instance (~30-50s)...`;
+      engineStatusBadge.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+      engineStatusBadge.style.color = '#fbbf24';
+    }, 2500);
+
     try {
       const res = await fetch('/api/health');
+      clearTimeout(coldTimer);
       const data = await res.json();
-      engineStatusText.textContent = `Offline RapidOCR & Local Semantic Engine Active`;
+      engineStatusText.textContent = `Render Cloud Online | Browser Acceleration Active`;
       engineStatusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
       engineStatusBadge.style.color = '#6ee7b7';
     } catch (e) {
+      clearTimeout(coldTimer);
+      engineStatusText.textContent = `Reconnecting to Server...`;
       console.warn("Backend connection pending:", e);
     }
   }
+
+  // Periodic Keep-Alive Ping (keeps Render free container awake while user has the tab open)
+  setInterval(() => {
+    fetch('/api/health').catch(() => {});
+  }, 10 * 60 * 1000);
 
   // 2. Tab Navigation
   function initTabs() {
@@ -666,6 +680,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Client-Side In-Browser OCR using Tesseract.js (bypasses Render 0.1 vCPU bottleneck)
+  async function runClientOcr(imageSource, timeoutMs = 12000) {
+    if (typeof Tesseract === 'undefined' || !Tesseract.recognize) {
+      return null;
+    }
+    try {
+      const ocrPromise = (async () => {
+        const res = await Tesseract.recognize(imageSource, 'eng');
+        const txt = res?.data?.text?.trim();
+        return (txt && txt.length > 15) ? txt : null;
+      })();
+      const timeoutPromise = new Promise(resolve => setTimeout(() => resolve(null), timeoutMs));
+      return await Promise.race([ocrPromise, timeoutPromise]);
+    } catch (err) {
+      console.warn('In-browser Tesseract OCR skipped:', err);
+      return null;
+    }
+  }
+
+  // Client-Side Scanned PDF OCR (renders first 2 pages to in-memory canvas and OCRs in browser)
+  async function extractScannedPdfClient(file, maxPages = 2) {
+    if (typeof pdfjsLib === 'undefined' || typeof Tesseract === 'undefined') return null;
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let scannedText = '';
+      const pagesToScan = Math.min(pdfDoc.numPages, maxPages);
+      for (let p = 1; p <= pagesToScan; p++) {
+        const page = await pdfDoc.getPage(p);
+        const viewport = page.getViewport({ scale: 1.2 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const ocr = await runClientOcr(canvas, 10000);
+        if (ocr) {
+          scannedText += `--- [Page ${p} (Client In-Browser Scanned OCR)] ---\n${ocr}\n\n`;
+        }
+      }
+      return scannedText.trim() || null;
+    } catch (e) {
+      console.warn('Client Scanned PDF OCR skipped:', e);
+      return null;
+    }
+  }
+
   // Client-Side ZIP Extractor (unpacks archive in memory without server load)
   async function unpackZipClient(zipFile) {
     if (typeof JSZip === 'undefined' || !zipFile.name.toLowerCase().endsWith('.zip')) {
@@ -725,10 +786,26 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ext.endsWith('.jpg') || ext.endsWith('.jpeg') || ext.endsWith('.png') || ext.endsWith('.webp')) {
         const optimized = await optimizeImageFile(file);
         processedFiles.push(optimized);
+
+        // Run in-browser OCR on document images (excluding pure site/elevation photos)
+        const fname = file.name.toLowerCase();
+        const isPhotoOnly = fname.includes('photo_') || fname.includes('elevation') || fname.includes('site_') || fname.includes('road_') || fname.includes('kitchen') || fname.includes('room');
+        if (!isPhotoOnly && typeof Tesseract !== 'undefined') {
+          showToast(`Running in-browser OCR on ${file.name}...`, 'info');
+          const ocrText = await runClientOcr(optimized, 10000);
+          if (ocrText) {
+            clientTextMap[file.name] = ocrText;
+          }
+        }
       } else if (ext.endsWith('.pdf')) {
         processedFiles.push(file);
         // Extract digital text client-side via PDF.js if available
-        const pdfText = await extractTextFromPdfClient(file);
+        let pdfText = await extractTextFromPdfClient(file);
+        // If digital text is missing/empty (scanned PDF), run in-browser OCR on first 2 pages
+        if (!pdfText && typeof Tesseract !== 'undefined') {
+          showToast(`Scanned PDF detected (${file.name}). Extracting client-side...`, 'info');
+          pdfText = await extractScannedPdfClient(file, 2);
+        }
         if (pdfText) {
           clientTextMap[file.name] = pdfText;
         }
