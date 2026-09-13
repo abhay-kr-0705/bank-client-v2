@@ -1,5 +1,5 @@
 @echo off
-title BankTech Client Live Preview (Cloudflare Tunnel)
+title BankTech Client Live Preview via Cloudflare Tunnel
 cd /d "%~dp0"
 color 0A
 set PYTHONUNBUFFERED=1
@@ -13,33 +13,32 @@ echo.
 python --version >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo [!] CRITICAL ERROR: Python is not installed or not in your system PATH!
-    echo [*] Please download and install Python (3.10, 3.11, or 3.12) from:
-    echo     https://www.python.org/downloads/
-    echo [*] IMPORTANT: Ensure you check the box "Add python.exe to PATH" during install!
+    echo [*] Please install Python 3.10, 3.11, or 3.12 from python.org
+    echo [*] IMPORTANT: Ensure you check the box: Add python.exe to PATH during installation!
     echo.
     pause
     exit /b 1
 )
 
 :: 2. Check or create Virtual Environment
-if not exist "venv\Scripts\activate.bat" (
-    echo [*] First-time setup detected on this PC!
-    echo [*] Creating isolated virtual environment (venv)...
-    python -m venv venv
-)
-
-:: 3. Activate venv if available
 if exist "venv\Scripts\activate.bat" (
+    echo [*] Activating virtual environment venv...
     call venv\Scripts\activate.bat
 )
 
-:: 4. Verify core dependencies
+:: 3. Test if core dependencies are installed
 python -c "import fastapi, uvicorn, openpyxl, fitz, rapidocr" >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo [*] Installing required dependencies automatically...
-    echo [*] Please wait 1-2 minutes...
+    echo [*] First-time setup: Installing required dependencies automatically...
+    echo [*] Please wait 1 to 2 minutes...
     echo.
+    if not exist "venv\Scripts\activate.bat" (
+        python -m venv venv
+        if exist "venv\Scripts\activate.bat" (
+            call venv\Scripts\activate.bat
+        )
+    )
     python -m pip install --upgrade pip
     pip install -r requirements.txt
     if %ERRORLEVEL% NEQ 0 (
@@ -48,21 +47,20 @@ if %ERRORLEVEL% NEQ 0 (
         pause
         exit /b 1
     )
-    echo [+] All dependencies installed successfully!
+    echo.
+    echo [+] Dependencies installed successfully!
     echo.
 )
 
-:: 5. Ensure required runtime folders exist
+:: 4. Ensure required runtime folders exist
 if not exist "uploads" mkdir uploads
 if not exist "outputs" mkdir outputs
 if not exist "uploads\temp" mkdir uploads\temp
 
-:: 6. Launch Cloudflare tunnel and local server
+:: 5. Launch Cloudflare tunnel and local server
 echo [*] Launching application and creating live Cloudflare preview link...
 python share.py
 
-if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo [!] Preview stopped unexpectedly.
-    pause
-)
+echo.
+echo [*] Live preview session closed.
+pause
