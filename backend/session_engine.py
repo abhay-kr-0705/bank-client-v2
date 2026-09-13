@@ -159,8 +159,11 @@ class SessionManager:
                 if not f.startswith("~$") and not f.startswith(".") and not f.lower().endswith(".xlsx"):
                     current_doc_paths.append(os.path.join(root, f))
 
+        new_paths = [p for p in saved_paths if not p.lower().endswith(".xlsx") and not os.path.basename(p).startswith("~$")]
+        docs_to_process = new_paths if new_paths else current_doc_paths
+
         extractor = CaseExtractor(api_key=api_key, model_name=model_name)
-        new_report = extractor.process_file_list(current_doc_paths)
+        new_report = extractor.process_file_list(docs_to_process)
 
         # Merge new extracted entities into active session report_data
         self._merge_report_data(new_report)

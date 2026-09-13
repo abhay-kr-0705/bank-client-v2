@@ -150,10 +150,11 @@ class CaseExtractor:
             with open(file_path, "rb") as img_f:
                 img_data = img_f.read()
                 images.append(img_data)
-                # Run local OCR on image if it's not purely a photo
-                ocr_t, _ = OfflineOCREngine.extract_text_from_image_bytes(img_data)
-                if ocr_t.strip():
-                    text = f"[OCR from {filename}]:\n{ocr_t}"
+                # Run local OCR on image only if it is not purely a site photo
+                if classification.get("category") != "SITE_PHOTO_IMAGE":
+                    ocr_t, _ = OfflineOCREngine.extract_text_from_image_bytes(img_data)
+                    if ocr_t.strip():
+                        text = f"[OCR from {filename}]:\n{ocr_t}"
         elif ext in [".txt", ".csv", ".log"]:
             text = parse_text_or_csv_file(file_path)
 
@@ -304,12 +305,20 @@ class CaseExtractor:
             report.address.plot_house_khasra = f"Property No. {plot_val}" if not plot_val.lower().startswith("property") else plot_val
 
         # 6. Dimensions (Length & Breadth)
-        dim_m = re.search(r'(?:dimension|size|area)?[\s\:]*\(?(\d+(?:\.\d+)?)\s*(?:x|X|\*|by)\s*(\d+(?:\.\d+)?)\)?', all_text)
-        if dim_m:
-            d1 = float(dim_m.group(1))
-            d2 = float(dim_m.group(2))
-            length = max(d1, d2)
-            breadth = min(d1, d2)
+        dim_all = re.findall(r'(?:dimension|size|area)?[\s\:]*\(?\b(\d{1,3}(?:\.\d{1,2})?)\s*(?:x|X|\*|by)\s*(\d{1,3}(?:\.\d{1,2})?)\b\)?', all_text, re.IGNORECASE)
+        valid_dims = []
+        for d1_s, d2_s in dim_all:
+            try:
+                v1, v2 = float(d1_s), float(d2_s)
+                if 5.0 <= v1 <= 200.0 and 5.0 <= v2 <= 200.0:
+                    valid_dims.append((max(v1, v2), min(v1, v2)))
+            except Exception:
+                pass
+
+        if valid_dims:
+            from collections import Counter
+            common_dim = Counter(valid_dims).most_common(1)[0][0]
+            length, breadth = common_dim
             report.land_measurements.land_length = length
             report.land_measurements.land_breadth = breadth
             report.solar_roof_vicinity.roof_length_sqft = breadth
@@ -480,6 +489,43 @@ class CaseExtractor:
             "size_bytes": f_res["size_bytes"],
             "size_display": f_res["size_display"]
         }]
+        return report
+
+    def process_file_list(self, file_paths: List[str]) -> ReportData:
+        """Processes a list of document file paths, aggregates texts, runs extraction & validation."""
+        files_info = []
+        aggregated_text = []
+        found_gps = None
+
+        for fpath in file_paths:
+            if not os.path.exists(fpath) or not os.path.isfile(fpath):
+                continue
+            fname = os.path.basename(fpath)
+            if fname.startswith("~$") or fname.startswith(".") or fname.lower().endswith(".xlsx"):
+                continue
+
+            try:
+                f_res = self.inspect_file(fpath)
+                files_info.append({
+                    "filename": f_res["filename"],
+                    "path": f_res["path"],
+                    "type": f_res["type"],
+                    "classification_label": f_res["classification_label"],
+                    "priority": f_res["priority"],
+                    "size_bytes": f_res["size_bytes"],
+                    "size_display": f_res["size_display"]
+                })
+                if f_res.get("text"):
+                    aggregated_text.append(f"=== DOCUMENT [{f_res['classification_label']}]: {fname} ===\n{f_res['text']}")
+                if f_res.get("gps") and not found_gps:
+                    found_gps = f_res["gps"]
+            except Exception as e:
+                print(f"[Warning] Error inspecting file {fpath}: {e}")
+
+        all_text = "\n\n".join(aggregated_text)
+        report = self.dynamic_entity_extractor(all_text, found_gps)
+        report = ValuationValidator.validate_and_score(report)
+        report.raw_files_summary = files_info
         return report
 
     def process_case_folder(self, folder_path: str) -> ReportData:

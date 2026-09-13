@@ -38,26 +38,40 @@ class OfflineOCREngine:
 
         try:
             pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            max_dim = 1280
+            if max(pil_img.size) > max_dim:
+                pil_img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
             np_img = np.array(pil_img)
             
-            ocr_res, _ = engine(np_img)
+            ocr_res = engine(np_img)
             if not ocr_res:
                 return "", 0.0
 
-            lines = []
-            confidences = []
-            for item in ocr_res:
-                # RapidOCR format: [box, text, score]
-                if len(item) >= 3:
-                    text = str(item[1]).strip()
-                    score = float(item[2])
-                    if text:
-                        lines.append(text)
-                        confidences.append(score)
+            # Modern RapidOCROutput format
+            if hasattr(ocr_res, "txts") and ocr_res.txts:
+                lines = [str(t).strip() for t in ocr_res.txts if str(t).strip()]
+                scores = [float(s) for s in (ocr_res.scores or []) if s is not None]
+                full_text = "\n".join(lines)
+                avg_conf = sum(scores) / len(scores) if scores else 0.0
+                return full_text, round(avg_conf, 3)
 
-            full_text = "\n".join(lines)
-            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-            return full_text, round(avg_conf, 3)
+            # Legacy tuple/list format
+            items = ocr_res[0] if (isinstance(ocr_res, (list, tuple)) and len(ocr_res) == 2 and isinstance(ocr_res[0], list)) else ocr_res
+            if isinstance(items, (list, tuple)):
+                lines = []
+                confidences = []
+                for item in items:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        text = str(item[1]).strip()
+                        score = float(item[2]) if len(item) >= 3 else 1.0
+                        if text:
+                            lines.append(text)
+                            confidences.append(score)
+                full_text = "\n".join(lines)
+                avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
+                return full_text, round(avg_conf, 3)
+
+            return "", 0.0
         except Exception as e:
             print(f"[OCR Processing Error]: {e}")
             return "", 0.0
