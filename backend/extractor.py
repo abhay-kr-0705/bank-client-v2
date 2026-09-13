@@ -97,6 +97,35 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, 
 
             # If digital text exists, use it
             if txt.strip():
+                # Extract structured tabular key-values if present in digital PDF
+                try:
+                    tabs = page.find_tables()
+                    for tab in getattr(tabs, 'tables', []):
+                        rows = tab.extract()
+                        prev_is_boundary = False
+                        boundary_count = 0
+                        for r in rows:
+                            clean = [str(c).strip().replace('\n', ' ') if c else '' for c in r]
+                            if len(clean) >= 4 and [c.lower() for c in clean[:4]] == ['east', 'west', 'north', 'south']:
+                                prev_is_boundary = True
+                                boundary_count += 1
+                                continue
+                            if prev_is_boundary and len(clean) >= 4:
+                                prefix = 'Site' if boundary_count == 1 else 'Deed'
+                                text_content.append(f"{prefix} East: {clean[0]}")
+                                text_content.append(f"{prefix} West: {clean[1]}")
+                                text_content.append(f"{prefix} North: {clean[2]}")
+                                text_content.append(f"{prefix} South: {clean[3]}")
+                                prev_is_boundary = False
+                                continue
+                            prev_is_boundary = False
+                            if len(clean) == 4 and clean[0] and clean[1] and clean[2] and clean[3]:
+                                text_content.append(f"{clean[0]}: {clean[1]}")
+                                text_content.append(f"{clean[2]}: {clean[3]}")
+                            elif len(clean) >= 2 and clean[0] and clean[1]:
+                                text_content.append(f"{clean[0]}: {clean[1]}")
+                except Exception:
+                    pass
                 text_content.append(f"--- [Page {page_num + 1}] ---\n{txt}")
             else:
                 # Scanned page: render pixmap at memory-efficient 110 DPI
@@ -392,24 +421,54 @@ class CaseExtractor:
                 report.address.city = "Delhi"
                 report.address.district = "Delhi"
 
-        # 9. Street / Landmark / Village / Colony
-        street_m = re.search(r'(Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+|Street\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
+        # 9. Dwelling Units & Floor Number
+        dw_m = re.search(r'Dwelling\s*Units\s*Owned\s*[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if dw_m:
+            report.header.dwelling_units_owned = int(dw_m.group(1))
+
+        fl_no_m = re.search(r'Floor\s*Number\s*[:\-]?\s*([A-Za-z0-9\s]{3,30})', all_text, re.IGNORECASE)
+        if fl_no_m:
+            cand = fl_no_m.group(1).strip()
+            if not cand.lower().startswith("project") and not cand.lower().startswith("colony") and not cand.lower().startswith("address"):
+                report.address.floor_number = cand
+
+        plot_m = re.search(r'Plot/House/Flat\s*Number/Khasra\s*No\.?\s*[:\-]?\s*([A-Za-z0-9\s\.\-_]{3,35})', all_text, re.IGNORECASE)
+        if plot_m:
+            cand = plot_m.group(1).strip()
+            if not cand.lower().startswith("floor"):
+                report.address.plot_house_khasra = cand
+
+        # 10. Street / Landmark / Village / Colony
+        street_m = re.search(r'(?:Street\s*Name/Number\s*[:\-]?\s*([A-Za-z0-9\s\.\-_]{3,35})|Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
         if street_m:
-            report.address.street_name = street_m.group(1).strip()
+            val = street_m.group(1) or street_m.group(0)
+            if not val.lower().startswith("nearest"):
+                val = val.strip()
+                if val.isupper():
+                    val = val.title()
+                report.address.street_name = val
 
         landmark_m = re.search(r'(?:Nearest\s*Landmark|Landmark)\s*[:\-]?\s*([A-Za-z0-9\.\s]{3,35})', all_text, re.IGNORECASE)
         if landmark_m:
-            report.address.nearest_landmark = landmark_m.group(1).strip()
+            cand = landmark_m.group(1).strip()
+            if not cand.lower().startswith("village") and not cand.lower().startswith("city"):
+                report.address.nearest_landmark = cand
 
-        colony_m = re.search(r'(?:Abadi\s*Known\s*as|Colony|Enclave|Garden|Vihar|Nagar)\s*[:\-]?\s*([A-Za-z\s]+(?:Extn\.?|Extension|Vihar|Nagar|Garden|Enclave))', all_text, re.IGNORECASE)
+        colony_m = re.search(r'(?:Project/Society/Colony\s*Name|Abadi\s*Known\s*as)\s*[:\-]?\s*([A-Za-z\s\.\-_]+?)(?=\n|Address|$)', all_text, re.IGNORECASE)
+        if not colony_m:
+            colony_m = re.search(r'(?:Colony|Enclave|Garden|Vihar|Nagar)\s*[:\-]?\s*([A-Za-z\s]+(?:Extn\.?|Extension|Vihar|Nagar|Garden|Enclave))', all_text, re.IGNORECASE)
         if colony_m:
-            report.address.colony_name = colony_m.group(1).strip()
+            cand = colony_m.group(1).strip()
+            if not cand.lower().startswith("address"):
+                report.address.colony_name = cand
 
-        village_m = re.search(r'(?:Revenue\s*Estate\s*of\s*Village[\- ]*|Village[\- ]+)([A-Za-z]+)', all_text, re.IGNORECASE)
+        village_m = re.search(r'(?:Village\s*Name|Revenue\s*Estate\s*of\s*Village[\- ]*|Village[\- ]+)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
         if village_m:
-            report.address.village_name = village_m.group(1).strip()
+            cand = village_m.group(1).strip()
+            if not cand.lower().startswith("city") and not cand.lower().startswith("plot"):
+                report.address.village_name = cand
 
-        # 10. Document Address & Site Address
+        # 11. Document Address & Site Address
         doc_match = re.search(r'(Property\s*(?:Bearing\s*)?Plot\s*No\.[^\n\r]{10,180}?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
         if doc_match:
             report.address.address_docs = doc_match.group(1).strip()
@@ -419,58 +478,151 @@ class CaseExtractor:
             report.address.address_site = site_match.group(1).strip()
 
         # 11. Boundaries (Site vs Deed)
-        # Site Boundaries
-        site_east_m = re.search(r'(?:Site\s*East|East\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if site_east_m:
-            report.boundaries.site_east = site_east_m.group(1).strip()
+        # Check boundary block pattern first (e.g. East\nWest\nNorth\nSouth...)
+        bound_block_m = re.search(r'East\s*\n\s*West\s*\n\s*North\s*\n\s*South\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+(?:\n\s*[0-9A-Za-z]+)?)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*East\s*\n\s*West\s*\n\s*North\s*\n\s*South\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)', all_text, re.IGNORECASE)
+        if bound_block_m:
+            report.boundaries.site_east = bound_block_m.group(1).strip()
+            report.boundaries.site_west = bound_block_m.group(2).replace('\n', ' ').strip()
+            report.boundaries.site_north = bound_block_m.group(3).strip()
+            report.boundaries.site_south = bound_block_m.group(4).strip()
+            report.boundaries.deed_east = bound_block_m.group(5).strip()
+            report.boundaries.deed_west = bound_block_m.group(6).strip()
+            report.boundaries.deed_north = bound_block_m.group(7).strip()
+            report.boundaries.deed_south = bound_block_m.group(8).strip()
 
-        site_west_m = re.search(r'(?:Site\s*West|West\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if site_west_m:
-            report.boundaries.site_west = site_west_m.group(1).strip()
+        # Site Boundaries key-value fallback
+        if not report.boundaries.site_east:
+            site_east_m = re.search(r'(?:Site\s*East|East\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if site_east_m:
+                report.boundaries.site_east = site_east_m.group(1).strip()
 
-        site_north_m = re.search(r'(?:Site\s*North|North\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if site_north_m:
-            report.boundaries.site_north = site_north_m.group(1).strip()
+        if not report.boundaries.site_west:
+            site_west_m = re.search(r'(?:Site\s*West|West\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if site_west_m:
+                report.boundaries.site_west = site_west_m.group(1).strip()
 
-        site_south_m = re.search(r'(?:Site\s*South|South\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if site_south_m:
-            report.boundaries.site_south = site_south_m.group(1).strip()
+        if not report.boundaries.site_north:
+            site_north_m = re.search(r'(?:Site\s*North|North\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if site_north_m:
+                report.boundaries.site_north = site_north_m.group(1).strip()
 
-        # Deed Boundaries
-        deed_east_m = re.search(r'(?:Deed\s*East|East\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if deed_east_m:
-            report.boundaries.deed_east = deed_east_m.group(1).strip()
+        if not report.boundaries.site_south:
+            site_south_m = re.search(r'(?:Site\s*South|South\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if site_south_m:
+                report.boundaries.site_south = site_south_m.group(1).strip()
 
-        deed_west_m = re.search(r'(?:Deed\s*West|West\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if deed_west_m:
-            report.boundaries.deed_west = deed_west_m.group(1).strip()
+        # Deed Boundaries key-value fallback
+        if not report.boundaries.deed_east:
+            deed_east_m = re.search(r'(?:Deed\s*East|East\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if deed_east_m:
+                report.boundaries.deed_east = deed_east_m.group(1).strip()
 
-        deed_north_m = re.search(r'(?:Deed\s*North|North\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if deed_north_m:
-            report.boundaries.deed_north = deed_north_m.group(1).strip()
+        if not report.boundaries.deed_west:
+            deed_west_m = re.search(r'(?:Deed\s*West|West\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if deed_west_m:
+                report.boundaries.deed_west = deed_west_m.group(1).strip()
 
-        deed_south_m = re.search(r'(?:Deed\s*South|South\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
-        if deed_south_m:
-            report.boundaries.deed_south = deed_south_m.group(1).strip()
+        if not report.boundaries.deed_north:
+            deed_north_m = re.search(r'(?:Deed\s*North|North\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if deed_north_m:
+                report.boundaries.deed_north = deed_north_m.group(1).strip()
+
+        if not report.boundaries.deed_south:
+            deed_south_m = re.search(r'(?:Deed\s*South|South\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            if deed_south_m:
+                report.boundaries.deed_south = deed_south_m.group(1).strip()
 
         # Boundary Matching & Occupancy
         if "boundary matching" in all_text.lower():
             bm_m = re.search(r'Boundary\s*Matching\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
             if bm_m:
                 report.boundaries.boundary_matching = bm_m.group(1).capitalize()
-        if re.search(r'\b(Seller|Borrower|Tenant|Vacant)\b', all_text, re.IGNORECASE):
-            occ_m = re.search(r'(?:Occupancy\s*Status)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
-            if occ_m:
-                report.boundaries.occupancy_status = occ_m.group(1).capitalize()
+        if "mismatch remarks" in all_text.lower():
+            mm_m = re.search(r'Mismatch\s*Remarks\s*[:\-]?\s*([A-Za-z0-9\s]+)', all_text, re.IGNORECASE)
+            if mm_m:
+                report.boundaries.mismatch_remarks = mm_m.group(1).strip()
 
-        # 12. Floors & Accommodation
+        occ_m = re.search(r'(?:Occupancy\s*Status)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
+        if occ_m:
+            cand = occ_m.group(1).strip().capitalize()
+            if cand in ["Seller", "Borrower", "Tenant", "Vacant"]:
+                report.boundaries.occupancy_status = cand
+        elif re.search(r'\b(seller[\- ]occupied|occupied\s*by\s*seller)\b', all_text, re.IGNORECASE):
+            report.boundaries.occupancy_status = "Seller"
+        elif re.search(r'\b(borrower[\- ]occupied|occupied\s*by\s*borrower)\b', all_text, re.IGNORECASE):
+            report.boundaries.occupancy_status = "Borrower"
+        elif re.search(r'\b(tenant[\- ]occupied|occupied\s*by\s*tenant)\b', all_text, re.IGNORECASE):
+            report.boundaries.occupancy_status = "Tenant"
+        elif re.search(r'\b(vacant\s*property|property\s*is\s*vacant)\b', all_text, re.IGNORECASE):
+            report.boundaries.occupancy_status = "Vacant"
+
+        # 12. Solar & Roof Vicinity
+        sol_loc_m = re.search(r'Solar\s*Panel\s*Can\s*be\s*installed\s*at\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
+        if sol_loc_m:
+            report.solar_roof_vicinity.solar_install_location = sol_loc_m.group(1).strip()
+
+        roof_len_m = re.search(r'Length\s*in\s*Sq\s*ft\s*[:\-]?\s*(\d+(?:\.\d+)?)', all_text, re.IGNORECASE)
+        if roof_len_m:
+            report.solar_roof_vicinity.roof_length_sqft = float(roof_len_m.group(1))
+
+        roof_br_m = re.search(r'Breadth\s*in\s*Sq\s*ft\s*[:\-]?\s*(\d+(?:\.\d+)?)', all_text, re.IGNORECASE)
+        if roof_br_m:
+            report.solar_roof_vicinity.roof_breadth_sqft = float(roof_br_m.group(1))
+
+        outreach_m = re.search(r'is\s*Property\s*Situated\s*in\s*Outreach\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if outreach_m:
+            report.solar_roof_vicinity.is_outreach = outreach_m.group(1).capitalize()
+
+        pop_m = re.search(r'Population\s*within\s*1\s*KM\s*Radius\s*[:\-]?\s*([A-Za-z0-9\s]{3,30})', all_text, re.IGNORECASE)
+        if pop_m:
+            cand = pop_m.group(1).strip()
+            if not cand.lower().startswith("no"):
+                report.solar_roof_vicinity.population_1km = cand
+
+        pri_m = re.search(r'No\.?\s*of\s*Primary\s*Schools[^\n\r]*?[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if pri_m:
+            report.solar_roof_vicinity.primary_schools_1km = int(pri_m.group(1))
+
+        sec_m = re.search(r'No\.?\s*of\s*Secondary\s*Schools[^\n\r]*?[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if sec_m:
+            report.solar_roof_vicinity.secondary_schools_1km = int(sec_m.group(1))
+
+        govt_m = re.search(r'Govt\s*Institution\s*in\s*Vicinity\s*[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if govt_m:
+            report.solar_roof_vicinity.govt_institutions_vicinity = int(govt_m.group(1))
+
+        # 13. Floors & Accommodation
         if re.search(r'(?:S\+UG\+3|S\s*\+\s*UG\s*\+\s*3|5\s*storied|5\s*floor)', all_text, re.IGNORECASE):
             report.accommodation.no_of_floors = 5
         elif re.search(r'(\d+)\s*(?:storied|floors?)', all_text, re.IGNORECASE):
             fl_m = re.search(r'(\d+)\s*(?:storied|floors?)', all_text, re.IGNORECASE)
             report.accommodation.no_of_floors = int(fl_m.group(1))
 
-        # 13. Legal Checks & Person Met
+        toilet_m = re.search(r'Toilet\s*Available\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if toilet_m:
+            report.accommodation.toilet_available = toilet_m.group(1).capitalize()
+
+        lift_m = re.search(r'No\.?\s*of\s*Lifts?\s*[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if lift_m:
+            report.accommodation.no_of_lifts = int(lift_m.group(1))
+
+        apt_m = re.search(r'Number\s*of\s*Appartments?\s*Per\s*Floor\s*[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if apt_m:
+            report.accommodation.apartments_per_floor = int(apt_m.group(1))
+
+        em_inst_m = re.search(r'Electricity\s*Meter\s*Installed\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if em_inst_m:
+            report.accommodation.electricity_meter_installed = em_inst_m.group(1).capitalize()
+
+        em_num_m = re.search(r'Electricity\s*Meter\s*Number\s*[:\-]?\s*([A-Za-z0-9\-_/]+)', all_text, re.IGNORECASE)
+        if em_num_m:
+            report.accommodation.electricity_meter_number = em_num_m.group(1).strip()
+
+        # 14. Legal Statutory Checks & Person Met
+        doc_name_m = re.search(r'Documents\s*Name\s*[:\-]?\s*([A-Za-z\s]{3,25})', all_text, re.IGNORECASE)
+        if doc_name_m:
+            report.legal_checks.documents_name = doc_name_m.group(1).strip()
+
         person_m = re.search(r'(?:Person\s*Meet|Met\s*at\s*site|Contact\s*Person)\s*[:\-]?\s*(?:Mr\.?|Mrs\.?|Sh\.?)?\s*([A-Za-z\s]{3,25})', all_text, re.IGNORECASE)
         if person_m:
             cand = person_m.group(1).strip()
@@ -485,12 +637,88 @@ class CaseExtractor:
             if len(cand) >= 3:
                 report.legal_checks.relation_with_owner = cand
 
+        prop_sit_m = re.search(r'Property\s*Situated\s*at\s*[:\-]?\s*(MC|Village\s*Abadi|[A-Za-z\s]+)', all_text, re.IGNORECASE)
+        if prop_sit_m:
+            cand = prop_sit_m.group(1).strip()
+            if not cand.lower().startswith("is"):
+                report.legal_checks.property_situated_at = cand
+
+        sanc_m = re.search(r'Is\s*Construction\s*as\s*per\s*Sanction\s*Plan\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if sanc_m:
+            report.legal_checks.is_sanction_plan_compliant = sanc_m.group(1).capitalize()
+
+        path_m = re.search(r'Pathway\s*Clear\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if path_m:
+            report.legal_checks.pathway_clear = path_m.group(1).capitalize()
+
+        sanc_app_m = re.search(r'Sanction\s*Plan\s*Approval\s*Number\s*&\s*Date\s*[:\-]?\s*(Yes|No|[A-Za-z0-9\s]+)', all_text, re.IGNORECASE)
+        if sanc_app_m:
+            cand = sanc_app_m.group(1).strip()
+            if not cand.lower().startswith("property"):
+                report.legal_checks.sanction_plan_approval_no_date = cand
+
+        disast_m = re.search(r'Property\s*(?:is\s*)?in\s*Disaster\s*Prone\s*Area\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if disast_m:
+            report.legal_checks.is_disaster_prone = disast_m.group(1).capitalize()
+
+        appr_road_m = re.search(r'Approach\s*to\s*Property\s*by\s*Public\s*Road\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if appr_road_m:
+            report.legal_checks.approach_by_public_road = appr_road_m.group(1).capitalize()
+
+        nala_m = re.search(r'Property\s*Situated\s*Near\s*(?:by\s*)?Nala\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if nala_m:
+            report.legal_checks.near_nala = nala_m.group(1).capitalize()
+
+        hte_m = re.search(r'Property\s*Situated\s*in\s*HTE\s*Line\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if hte_m:
+            report.legal_checks.in_hte_line = hte_m.group(1).capitalize()
+
+        util_m = re.search(r'Whether\s*Electricty,\s*Water,\s*Drainage\s*in\s*Vicinity\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+        if util_m:
+            report.legal_checks.utilities_in_vicinity = util_m.group(1).capitalize()
+
+        mast_m = re.search(r'Approved\s*Land\s*as\s*per\s*Master\s*Plan\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
+        if mast_m:
+            report.legal_checks.approved_land_master_plan = mast_m.group(1).strip()
+
+        uses_m = re.search(r'Current\s*Uses\s*of\s*Property\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
+        if uses_m:
+            report.legal_checks.current_uses = uses_m.group(1).strip()
+
+        opin_m = re.search(r'Opinion\s*(?:Abot|About)\s*Report\s*[:\-]?\s*(Positive|Negative)', all_text, re.IGNORECASE)
+        if opin_m:
+            report.legal_checks.opinion_about_report = opin_m.group(1).capitalize()
+
+        occ250_m = re.search(r'%\s*Occupancy\s*in\s*250\s*Mtr\s*Radius\s*[:\-]?\s*([0-9%\-]+)', all_text, re.IGNORECASE)
+        if occ250_m:
+            report.legal_checks.occupancy_250m = occ250_m.group(1).strip()
+
+        dev250_m = re.search(r'%\s*of\s*Development\s*in\s*250\s*Mtr\s*Radius\s*[:\-]?\s*([0-9%\-]+)', all_text, re.IGNORECASE)
+        if dev250_m:
+            report.legal_checks.development_250m = dev250_m.group(1).strip()
+
+        prop_lim_m = re.search(r'Property\s*Limit\s*[:\-]?\s*([A-Za-z\s]+Limit|[A-Za-z\s]{3,30})', all_text, re.IGNORECASE)
+        if prop_lim_m:
+            cand = prop_lim_m.group(1).strip()
+            if not cand.lower().startswith("adm"):
+                report.legal_checks.property_limit = cand
+
+        adm_m = re.search(r'ADM\s*\(Area\s*Development\s*and\s*Marketability\)\s*[:\-]?\s*(Low|Average|High|[A-Za-z\s]+)', all_text, re.IGNORECASE)
+        if adm_m:
+            report.legal_checks.adm = adm_m.group(1).strip()
+
         if "road" in all_text.lower():
             road_w_m = re.search(r'(\d+\s*(?:Ft|Feet|Meter|Mtr)\s*Wide)', all_text, re.IGNORECASE)
             if road_w_m:
                 report.legal_checks.width_of_public_road = road_w_m.group(1).strip()
 
-        # 14. Reference & Feedback
+        # 15. Reference & Feedback
+        ref_n_m = re.search(r'Reference\s*Name\s*[:\-]?\s*([A-Za-z\s]{3,30})', all_text, re.IGNORECASE)
+        if ref_n_m:
+            cand = ref_n_m.group(1).strip()
+            if not cand.lower().startswith("reference") and not cand.lower().startswith("mobile"):
+                report.reference.reference_name = cand
+
         phone_m = re.search(r'\b([6-9]\d{9})\b', all_text)
         if phone_m:
             report.reference.reference_mobile = phone_m.group(1)
@@ -499,7 +727,24 @@ class CaseExtractor:
         if fb_m and not fb_m.group(1).strip().startswith("1.") and "subject property" not in fb_m.group(1).lower():
             report.reference.feedback = fb_m.group(1).strip()
 
-        # 15. Narrative Remarks
+        # Clean multi-line / whitespace artifacts
+        def _clean_str(val: str) -> str:
+            if not val:
+                return ""
+            s = str(val).strip()
+            s = re.split(r'[\r\n]', s)[0].strip()
+            return re.sub(r'\s+', ' ', s)
+
+        report.address.nearest_landmark = _clean_str(report.address.nearest_landmark)
+        report.address.plot_house_khasra = _clean_str(report.address.plot_house_khasra)
+        report.address.floor_number = _clean_str(report.address.floor_number)
+        report.boundaries.mismatch_remarks = _clean_str(report.boundaries.mismatch_remarks)
+        report.solar_roof_vicinity.solar_install_location = _clean_str(report.solar_roof_vicinity.solar_install_location)
+        report.solar_roof_vicinity.population_1km = _clean_str(report.solar_roof_vicinity.population_1km)
+        report.legal_checks.documents_name = _clean_str(report.legal_checks.documents_name)
+        report.legal_checks.property_limit = _clean_str(report.legal_checks.property_limit)
+        report.reference.reference_name = _clean_str(report.reference.reference_name)
+        # 16. Narrative Remarks
         remarks_block_m = re.search(r'(1\.\s*Subject Property[\s\S]*?(?:\d+\.\s*[^\n\r]+(?:\n|\r|$))+)', all_text)
         if remarks_block_m:
             report.remarks = remarks_block_m.group(1).strip() + "\n"
