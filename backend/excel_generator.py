@@ -144,7 +144,7 @@ def generate_excel_report(data: Union[ReportData, dict], output_path: str) -> st
     ws["D95"] = report.legal_checks.approved_land_master_plan
     ws["B96"] = report.legal_checks.width_of_public_road
     ws["D96"] = report.legal_checks.current_uses
-    ws["B97"] = report.legal_checks.opinion_about_report
+    ws["B97"] = " Positive" if report.legal_checks.opinion_about_report and report.legal_checks.opinion_about_report.strip().lower() == "positive" else (report.legal_checks.opinion_about_report.strip() if report.legal_checks.opinion_about_report else "")
     ws["D97"] = report.legal_checks.occupancy_250m
     ws["B98"] = report.legal_checks.tentative_rent
     ws["D98"] = report.legal_checks.development_250m

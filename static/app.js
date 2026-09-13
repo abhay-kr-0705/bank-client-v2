@@ -799,15 +799,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } else if (ext.endsWith('.pdf')) {
         processedFiles.push(file);
-        // Extract digital text client-side via PDF.js if available
-        let pdfText = await extractTextFromPdfClient(file);
-        // If digital text is missing/empty (scanned PDF), run in-browser OCR on first 2 pages
-        if (!pdfText && typeof Tesseract !== 'undefined') {
+        // For digital PDFs, allow server-side PyMuPDF to extract pristine structured tables.
+        // For scanned PDFs with 0 digital text, run client-side WebAssembly OCR.
+        let digitalText = await extractTextFromPdfClient(file);
+        if (!digitalText && typeof Tesseract !== 'undefined') {
           showToast(`Scanned PDF detected (${file.name}). Extracting client-side...`, 'info');
-          pdfText = await extractScannedPdfClient(file, 2);
-        }
-        if (pdfText) {
-          clientTextMap[file.name] = pdfText;
+          const scannedText = await extractScannedPdfClient(file, 2);
+          if (scannedText) {
+            clientTextMap[file.name] = scannedText;
+          }
         }
       } else {
         processedFiles.push(file);

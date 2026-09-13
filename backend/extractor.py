@@ -76,26 +76,30 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, 
     If a page has zero digital text (scanned PDF), runs local RapidOCR on the page pixmap.
     Uses memory-efficient 110 DPI rendering to prevent Render Free Tier OOM crashes.
     """
-    # Check for browser client pre-extracted text first
     sidecar_client = filepath + ".client.txt"
-    if os.path.exists(sidecar_client):
-        try:
-            with open(sidecar_client, "r", encoding="utf-8", errors="ignore") as sc:
-                client_text = sc.read().strip()
-            if client_text:
-                return client_text, []
-        except Exception:
-            pass
-
     text_content = []
     page_images = []
     try:
         doc = fitz.open(filepath)
+        # Check if the PDF has native digital text
+        has_digital_text = any(doc[p].get_text().strip() for p in range(min(len(doc), 3)))
+
+        # Only use client-side text if PDF is completely scanned (has 0 digital text) to save CPU/RAM
+        if not has_digital_text and os.path.exists(sidecar_client):
+            try:
+                with open(sidecar_client, "r", encoding="utf-8", errors="ignore") as sc:
+                    client_text = sc.read().strip()
+                if client_text:
+                    doc.close()
+                    return client_text, []
+            except Exception:
+                pass
+
         for page_num in range(min(len(doc), max_pages)):
             page = doc[page_num]
             txt = page.get_text()
 
-            # If digital text exists, use it
+            # If digital text exists, use PyMuPDF table & text extraction
             if txt.strip():
                 # Extract structured tabular key-values if present in digital PDF
                 try:
@@ -293,19 +297,50 @@ class CaseExtractor:
                 report.header.application_id = id_fallback.group(1).strip()
 
         # 2. Applicant Name
-        name_m = re.search(r'(?:Applicant\s*Name|Borrower\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\.\s]{3,40})', all_text, re.IGNORECASE)
-        if name_m:
-            candidate = name_m.group(1).strip()
-            candidate = re.split(r'(\n|\r|Type|Address|Age|Plot|and|Son|Wife|Phone)', candidate, flags=re.IGNORECASE)[0].strip()
-            if len(candidate) >= 3 and not candidate.lower().startswith("type"):
-                report.header.applicant_name = candidate
-        else:
-            purchaser_m = re.search(r'(?:Purchaser|Second\s*Party)\s*[:\-]?\s*(?:Mrs?\.?|Smt\.?|Sh\.?|Shri)?\s*([A-Za-z\s]{3,35})', all_text, re.IGNORECASE)
-            if purchaser_m:
-                cand = purchaser_m.group(1).strip()
-                cand = re.split(r'(\n|\r|W/o|S/o|D/o|and|for)', cand, flags=re.IGNORECASE)[0].strip()
-                if len(cand) >= 3:
-                    report.header.applicant_name = cand
+        INVALID_NAME_WORDS = {
+            "rs", "ra", "inr", "rupees", "type", "address", "age", "plot", "gali", "road",
+            "floor", "second", "party", "first", "stamp", "duty", "consideration",
+            "property", "near", "flat", "house", "village", "city", "applicant", "borrower",
+            "customer", "purchaser", "name", "and", "the", "for", "with", "from"
+        }
+        def _clean_and_validate_name(raw: str) -> Optional[str]:
+            if not raw:
+                return None
+            cand = raw.strip()
+            # Split off common boundary words
+            cand = re.split(r'(\n|\r|Type|Address|Age|Plot|and|Son|Wife|Phone|W/o|S/o|D/o|for\s+a|consideration|vide)', cand, flags=re.IGNORECASE)[0].strip()
+            cand = re.sub(r'[^\w\s\.]', ' ', cand)
+            cand = re.sub(r'\s+', ' ', cand).strip()
+            if len(cand) < 3 or len(cand) > 40:
+                return None
+            # Discard if starts with currency or invalid non-name prefix
+            low = cand.lower()
+            if any(low.startswith(p) for p in ["rs.", "rs ", "rupees", "inr", "second party", "first party", "stamp"]):
+                return None
+            tokens = [t for t in re.split(r'[\s\.]+', cand) if t]
+            # Must have at least one genuine name token of >= 3 alphabetic letters not in invalid words
+            valid_tokens = [t for t in tokens if len(t) >= 3 and t.isalpha() and t.lower() not in INVALID_NAME_WORDS]
+            if not valid_tokens:
+                return None
+            return cand
+
+        # Search for applicant name with prioritized regexes
+        name_patterns = [
+            r'(?:Applicant\s*Name|Borrower\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\.\s]{3,45})',
+            r'(?:in\s*favour\s*of|in\s*between|purchaser)\s*[:\-]?\s*((?:Mrs?\.?|Smt\.?|Sh\.?|Shri)?\s*[A-Za-z\.\s]{3,40})\s*(?:W/o|S/o|D/o)',
+            r'(?:Purchaser|Second\s*Party)\s*[:\-]?\s*((?:Mrs?\.?|Smt\.?|Sh\.?|Shri)?\s*[A-Za-z\.\s]{3,35})'
+        ]
+        found_name = None
+        for pat in name_patterns:
+            for match in re.finditer(pat, all_text, re.IGNORECASE):
+                val = _clean_and_validate_name(match.group(1))
+                if val:
+                    found_name = val
+                    break
+            if found_name:
+                break
+        if found_name:
+            report.header.applicant_name = found_name
 
         # 3. Geo Tag / GPS Coordinates
         geo_m = re.search(r'(?:Geo[\s\-]*Tag|Coordinates?|Geo-ordinates?)\s*(?:of\s*Subject\s*Property\s*are)?\s*[:\-]?\s*(\d{1,2}\.\d{4,8})\s*,\s*(\d{1,3}\.\d{4,8})', all_text, re.IGNORECASE)
@@ -407,9 +442,10 @@ class CaseExtractor:
         if pin_m:
             report.address.pincode = pin_m.group(1)
 
-        city_m = re.search(r'(?:City|District)\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
+        city_m = re.search(r'(?:City|District)\s*[:\-]?\s*([A-Za-z ]{3,25})', all_text, re.IGNORECASE)
         if city_m:
-            c_val = city_m.group(1).strip()
+            c_val = re.split(r'[\r\n]', city_m.group(1))[0].strip()
+            c_val = re.sub(r'\s+', ' ', c_val).strip()
             if not c_val.lower().startswith("pincode") and not c_val.lower().startswith("depart"):
                 report.address.city = c_val
                 report.address.district = c_val
@@ -439,11 +475,12 @@ class CaseExtractor:
                 report.address.plot_house_khasra = cand
 
         # 10. Street / Landmark / Village / Colony
-        street_m = re.search(r'(?:Street\s*Name/Number\s*[:\-]?\s*([A-Za-z0-9\s\.\-_]{3,35})|Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
+        street_m = re.search(r'(?:Street\s*Name/Number\s*[:\-]?\s*([A-Za-z0-9\s\.\-_]{3,40})|Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
         if street_m:
             val = street_m.group(1) or street_m.group(0)
+            val = re.split(r'(\n|\r|Nearest|Landmark|Village|City|Plot|Floor|Colony)', val, flags=re.IGNORECASE)[0].strip()
             if not val.lower().startswith("nearest"):
-                val = val.strip()
+                val = re.sub(r'\s+', ' ', val).strip()
                 if val.isupper():
                     val = val.title()
                 report.address.street_name = val
@@ -451,22 +488,25 @@ class CaseExtractor:
         landmark_m = re.search(r'(?:Nearest\s*Landmark|Landmark)\s*[:\-]?\s*([A-Za-z0-9\.\s]{3,35})', all_text, re.IGNORECASE)
         if landmark_m:
             cand = landmark_m.group(1).strip()
+            cand = re.split(r'(\n|\r|Village|City|Plot|Floor|Colony|Address)', cand, flags=re.IGNORECASE)[0].strip()
             if not cand.lower().startswith("village") and not cand.lower().startswith("city"):
-                report.address.nearest_landmark = cand
+                report.address.nearest_landmark = re.sub(r'\s+', ' ', cand).strip()
 
-        colony_m = re.search(r'(?:Project/Society/Colony\s*Name|Abadi\s*Known\s*as)\s*[:\-]?\s*([A-Za-z\s\.\-_]+?)(?=\n|Address|$)', all_text, re.IGNORECASE)
+        colony_m = re.search(r'(?:Project/Society/Colony\s*Name|Abadi\s*Known\s*as)\s*[:\-]?\s*([A-Za-z0-9\s\.\-_]+?)(?=\n|Address|$)', all_text, re.IGNORECASE)
         if not colony_m:
             colony_m = re.search(r'(?:Colony|Enclave|Garden|Vihar|Nagar)\s*[:\-]?\s*([A-Za-z\s]+(?:Extn\.?|Extension|Vihar|Nagar|Garden|Enclave))', all_text, re.IGNORECASE)
         if colony_m:
             cand = colony_m.group(1).strip()
+            cand = re.split(r'(\n|\r|Address|Plot|Floor)', cand, flags=re.IGNORECASE)[0].strip()
             if not cand.lower().startswith("address"):
-                report.address.colony_name = cand
+                report.address.colony_name = re.sub(r'\s+', ' ', cand).strip()
 
         village_m = re.search(r'(?:Village\s*Name|Revenue\s*Estate\s*of\s*Village[\- ]*|Village[\- ]+)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
         if village_m:
             cand = village_m.group(1).strip()
+            cand = re.split(r'(\n|\r|City|District|Plot|Floor|Address)', cand, flags=re.IGNORECASE)[0].strip()
             if not cand.lower().startswith("city") and not cand.lower().startswith("plot"):
-                report.address.village_name = cand
+                report.address.village_name = cand.title()
 
         # 11. Document Address & Site Address
         doc_match = re.search(r'(Property\s*(?:Bearing\s*)?Plot\s*No\.[^\n\r]{10,180}?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
@@ -481,56 +521,62 @@ class CaseExtractor:
         # Check boundary block pattern first (e.g. East\nWest\nNorth\nSouth...)
         bound_block_m = re.search(r'East\s*\n\s*West\s*\n\s*North\s*\n\s*South\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+(?:\n\s*[0-9A-Za-z]+)?)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*East\s*\n\s*West\s*\n\s*North\s*\n\s*South\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)\s*\n\s*([^\n\r]+)', all_text, re.IGNORECASE)
         if bound_block_m:
-            report.boundaries.site_east = bound_block_m.group(1).strip()
-            report.boundaries.site_west = bound_block_m.group(2).replace('\n', ' ').strip()
-            report.boundaries.site_north = bound_block_m.group(3).strip()
-            report.boundaries.site_south = bound_block_m.group(4).strip()
-            report.boundaries.deed_east = bound_block_m.group(5).strip()
-            report.boundaries.deed_west = bound_block_m.group(6).strip()
-            report.boundaries.deed_north = bound_block_m.group(7).strip()
-            report.boundaries.deed_south = bound_block_m.group(8).strip()
+            report.boundaries.site_east = re.sub(r'\s+', ' ', bound_block_m.group(1)).strip()
+            report.boundaries.site_west = re.sub(r'\s+', ' ', bound_block_m.group(2).replace('\n', ' ')).strip()
+            report.boundaries.site_north = re.sub(r'\s+', ' ', bound_block_m.group(3)).strip()
+            report.boundaries.site_south = re.sub(r'\s+', ' ', bound_block_m.group(4)).strip()
+            report.boundaries.deed_east = re.sub(r'\s+', ' ', bound_block_m.group(5)).strip()
+            report.boundaries.deed_west = re.sub(r'\s+', ' ', bound_block_m.group(6)).strip()
+            report.boundaries.deed_north = re.sub(r'\s+', ' ', bound_block_m.group(7)).strip()
+            report.boundaries.deed_south = re.sub(r'\s+', ' ', bound_block_m.group(8)).strip()
 
         # Site Boundaries key-value fallback
+        def _clean_boundary(val: Optional[str]) -> str:
+            if not val:
+                return ""
+            v = re.split(r'(\n|\r|East|West|North|South|Site|Deed|Boundary)', val.strip(), flags=re.IGNORECASE)[0].strip()
+            return re.sub(r'\s+', ' ', v).strip()
+
         if not report.boundaries.site_east:
-            site_east_m = re.search(r'(?:Site\s*East|East\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            site_east_m = re.search(r'(?:Site\s*East|East\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if site_east_m:
-                report.boundaries.site_east = site_east_m.group(1).strip()
+                report.boundaries.site_east = _clean_boundary(site_east_m.group(1))
 
         if not report.boundaries.site_west:
-            site_west_m = re.search(r'(?:Site\s*West|West\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            site_west_m = re.search(r'(?:Site\s*West|West\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if site_west_m:
-                report.boundaries.site_west = site_west_m.group(1).strip()
+                report.boundaries.site_west = _clean_boundary(site_west_m.group(1))
 
         if not report.boundaries.site_north:
-            site_north_m = re.search(r'(?:Site\s*North|North\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            site_north_m = re.search(r'(?:Site\s*North|North\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if site_north_m:
-                report.boundaries.site_north = site_north_m.group(1).strip()
+                report.boundaries.site_north = _clean_boundary(site_north_m.group(1))
 
         if not report.boundaries.site_south:
-            site_south_m = re.search(r'(?:Site\s*South|South\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            site_south_m = re.search(r'(?:Site\s*South|South\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if site_south_m:
-                report.boundaries.site_south = site_south_m.group(1).strip()
+                report.boundaries.site_south = _clean_boundary(site_south_m.group(1))
 
         # Deed Boundaries key-value fallback
         if not report.boundaries.deed_east:
-            deed_east_m = re.search(r'(?:Deed\s*East|East\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            deed_east_m = re.search(r'(?:Deed\s*East|East\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if deed_east_m:
-                report.boundaries.deed_east = deed_east_m.group(1).strip()
+                report.boundaries.deed_east = _clean_boundary(deed_east_m.group(1))
 
         if not report.boundaries.deed_west:
-            deed_west_m = re.search(r'(?:Deed\s*West|West\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            deed_west_m = re.search(r'(?:Deed\s*West|West\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if deed_west_m:
-                report.boundaries.deed_west = deed_west_m.group(1).strip()
+                report.boundaries.deed_west = _clean_boundary(deed_west_m.group(1))
 
         if not report.boundaries.deed_north:
-            deed_north_m = re.search(r'(?:Deed\s*North|North\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            deed_north_m = re.search(r'(?:Deed\s*North|North\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if deed_north_m:
-                report.boundaries.deed_north = deed_north_m.group(1).strip()
+                report.boundaries.deed_north = _clean_boundary(deed_north_m.group(1))
 
         if not report.boundaries.deed_south:
-            deed_south_m = re.search(r'(?:Deed\s*South|South\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r,]{3,50})', all_text, re.IGNORECASE)
+            deed_south_m = re.search(r'(?:Deed\s*South|South\s*as\s*per\s*(?:title\s*)?deed)\s*[:\-]?\s*([^\n\r]{3,80})', all_text, re.IGNORECASE)
             if deed_south_m:
-                report.boundaries.deed_south = deed_south_m.group(1).strip()
+                report.boundaries.deed_south = _clean_boundary(deed_south_m.group(1))
 
         # Boundary Matching & Occupancy
         if "boundary matching" in all_text.lower():
@@ -538,14 +584,18 @@ class CaseExtractor:
             if bm_m:
                 report.boundaries.boundary_matching = bm_m.group(1).capitalize()
         if "mismatch remarks" in all_text.lower():
-            mm_m = re.search(r'Mismatch\s*Remarks\s*[:\-]?\s*([A-Za-z0-9\s]+)', all_text, re.IGNORECASE)
+            mm_m = re.search(r'Mismatch\s*Remarks\s*[:\-]?\s*([A-Za-z0-9\s]{1,40}?)(?=\n|\r|$|Occupancy|Solar)', all_text, re.IGNORECASE)
             if mm_m:
-                report.boundaries.mismatch_remarks = mm_m.group(1).strip()
+                cand = mm_m.group(1).strip()
+                if not any(k in cand.lower() for k in ["occupancy", "solar", "shadow", "cracks"]):
+                    report.boundaries.mismatch_remarks = cand
+        if not report.boundaries.mismatch_remarks and report.boundaries.boundary_matching == "Yes":
+            report.boundaries.mismatch_remarks = "NA"
 
         occ_m = re.search(r'(?:Occupancy\s*Status)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
         if occ_m:
             cand = occ_m.group(1).strip().capitalize()
-            if cand in ["Seller", "Borrower", "Tenant", "Vacant"]:
+            if cand in ["Seller", "Borrower", "Tenant", "Vacant", "Self"]:
                 report.boundaries.occupancy_status = cand
         elif re.search(r'\b(seller[\- ]occupied|occupied\s*by\s*seller)\b', all_text, re.IGNORECASE):
             report.boundaries.occupancy_status = "Seller"
@@ -557,9 +607,11 @@ class CaseExtractor:
             report.boundaries.occupancy_status = "Vacant"
 
         # 12. Solar & Roof Vicinity
-        sol_loc_m = re.search(r'Solar\s*Panel\s*Can\s*be\s*installed\s*at\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
+        sol_loc_m = re.search(r'Solar\s*Panel\s*Can\s*be\s*installed\s*at\s*[:\-]?\s*([A-Za-z\s]{2,20}?)(?=\n|\r|$|Shadow|Parapet)', all_text, re.IGNORECASE)
         if sol_loc_m:
-            report.solar_roof_vicinity.solar_install_location = sol_loc_m.group(1).strip()
+            cand = sol_loc_m.group(1).strip()
+            if not any(k in cand.lower() for k in ["shadow", "free", "area", "roof", "sqft"]):
+                report.solar_roof_vicinity.solar_install_location = cand
 
         roof_len_m = re.search(r'Length\s*in\s*Sq\s*ft\s*[:\-]?\s*(\d+(?:\.\d+)?)', all_text, re.IGNORECASE)
         if roof_len_m:
@@ -621,19 +673,22 @@ class CaseExtractor:
         # 14. Legal Statutory Checks & Person Met
         doc_name_m = re.search(r'Documents\s*Name\s*[:\-]?\s*([A-Za-z\s]{3,25})', all_text, re.IGNORECASE)
         if doc_name_m:
-            report.legal_checks.documents_name = doc_name_m.group(1).strip()
+            cand = doc_name_m.group(1).strip()
+            cand = re.split(r'(\n|\r|Person|Meet|Owner)', cand, flags=re.IGNORECASE)[0].strip()
+            if cand and not cand.lower().startswith("person"):
+                report.legal_checks.documents_name = cand
 
         person_m = re.search(r'(?:Person\s*Meet|Met\s*at\s*site|Contact\s*Person)\s*[:\-]?\s*(?:Mr\.?|Mrs\.?|Sh\.?)?\s*([A-Za-z\s]{3,25})', all_text, re.IGNORECASE)
         if person_m:
             cand = person_m.group(1).strip()
-            cand = re.split(r'(\n|\r|Relation|Applicant|Son|Phone)', cand, flags=re.IGNORECASE)[0].strip()
-            if len(cand) >= 3 and not cand.lower().startswith("relation"):
+            cand = re.split(r'(\n|\r|Relation|Reation|Applicant|Son|Phone)', cand, flags=re.IGNORECASE)[0].strip()
+            if len(cand) >= 3 and not cand.lower().startswith("relation") and not cand.lower().startswith("reation"):
                 report.legal_checks.person_met = f"Mr. {cand}" if not cand.lower().startswith("mr") else cand
 
         rel_m = re.search(r'(?:Reation|Relation)\s*(?:with\s*(?:the\s*)?(?:Property\s*)?Owner)?\s*[:\-]?\s*([A-Za-z\'\s]{3,25})', all_text, re.IGNORECASE)
         if rel_m:
             cand = rel_m.group(1).strip()
-            cand = re.split(r'(\n|\r|Property|MC|Phone)', cand, flags=re.IGNORECASE)[0].strip()
+            cand = re.split(r'(\n|\r|Property|MC|Phone|Other)', cand, flags=re.IGNORECASE)[0].strip()
             if len(cand) >= 3:
                 report.legal_checks.relation_with_owner = cand
 
@@ -735,19 +790,43 @@ class CaseExtractor:
             s = re.split(r'[\r\n]', s)[0].strip()
             return re.sub(r'\s+', ' ', s)
 
+        report.address.city = _clean_str(report.address.city)
+        report.address.district = _clean_str(report.address.district)
+        report.address.colony_name = _clean_str(report.address.colony_name)
+        report.address.street_name = _clean_str(report.address.street_name)
         report.address.nearest_landmark = _clean_str(report.address.nearest_landmark)
         report.address.plot_house_khasra = _clean_str(report.address.plot_house_khasra)
         report.address.floor_number = _clean_str(report.address.floor_number)
+        report.header.applicant_name = _clean_str(report.header.applicant_name)
+        report.header.application_id = _clean_str(report.header.application_id)
+        report.boundaries.site_east = _clean_str(report.boundaries.site_east)
+        report.boundaries.site_west = _clean_str(report.boundaries.site_west)
+        report.boundaries.site_north = _clean_str(report.boundaries.site_north)
+        report.boundaries.site_south = _clean_str(report.boundaries.site_south)
+        report.boundaries.deed_east = _clean_str(report.boundaries.deed_east)
+        report.boundaries.deed_west = _clean_str(report.boundaries.deed_west)
+        report.boundaries.deed_north = _clean_str(report.boundaries.deed_north)
+        report.boundaries.deed_south = _clean_str(report.boundaries.deed_south)
         report.boundaries.mismatch_remarks = _clean_str(report.boundaries.mismatch_remarks)
+        report.boundaries.occupancy_status = _clean_str(report.boundaries.occupancy_status)
         report.solar_roof_vicinity.solar_install_location = _clean_str(report.solar_roof_vicinity.solar_install_location)
         report.solar_roof_vicinity.population_1km = _clean_str(report.solar_roof_vicinity.population_1km)
         report.legal_checks.documents_name = _clean_str(report.legal_checks.documents_name)
         report.legal_checks.property_limit = _clean_str(report.legal_checks.property_limit)
+        if report.legal_checks.property_limit and "within mc" in report.legal_checks.property_limit.lower():
+            report.legal_checks.property_limit = "Within MC  Limit"
         report.reference.reference_name = _clean_str(report.reference.reference_name)
+
         # 16. Narrative Remarks
-        remarks_block_m = re.search(r'(1\.\s*Subject Property[\s\S]*?(?:\d+\.\s*[^\n\r]+(?:\n|\r|$))+)', all_text)
-        if remarks_block_m:
-            report.remarks = remarks_block_m.group(1).strip() + "\n"
+        # Find all numbered remarks blocks across all documents and select the most comprehensive one (e.g. 13 points over 8 points)
+        remarks_candidates = []
+        for m in re.finditer(r'(1\.\s*Subject Property[\s\S]*?(?:\d+\.\s*[^\n\r]+(?:\n|\r|$))+)', all_text):
+            block = m.group(1).strip()
+            num_pts = len(re.findall(r'\b\d+\.\s*', block))
+            remarks_candidates.append((num_pts, len(block), block))
+        if remarks_candidates:
+            remarks_candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            report.remarks = remarks_candidates[0][2] + "\n"
         else:
             numbered_m = re.findall(r'(\d+\.\s*[^\n\r]+)', all_text)
             if len(numbered_m) >= 3:
@@ -784,6 +863,23 @@ class CaseExtractor:
             p for p in file_paths
             if os.path.exists(p) and os.path.isfile(p) and not os.path.basename(p).startswith("~$") and not os.path.basename(p).startswith(".") and not p.lower().endswith(".xlsx")
         ]
+
+        # Prioritize files: Valuation draft (10), Field notes docx (9), Deeds (6), Supporting docs (4), Photos (2)
+        def _get_path_priority(p: str) -> int:
+            fn = os.path.basename(p)
+            ext = os.path.splitext(fn.lower())[1]
+            preview = ""
+            if ext == ".pdf":
+                try:
+                    with fitz.open(p) as d:
+                        if len(d) > 0:
+                            preview = d[0].get_text()[:600]
+                except Exception:
+                    pass
+            cls_info = DocumentClassifier.classify_document(fn, preview_text=preview)
+            return cls_info.get("priority", 0)
+
+        valid_paths = sorted(valid_paths, key=_get_path_priority, reverse=True)
         total_files = len(valid_paths)
 
         for idx, fpath in enumerate(valid_paths):

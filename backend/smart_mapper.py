@@ -214,11 +214,16 @@ class SmartFieldMapper:
         flat["approved_land_master_plan"] = leg.approved_land_master_plan
         flat["width_of_public_road"] = leg.width_of_public_road
         flat["current_uses"] = leg.current_uses
-        flat["opinion_about_report"] = f" {leg.opinion_about_report.strip()}" if leg.opinion_about_report and leg.opinion_about_report.strip() else ""
+        flat["opinion_about_report"] = " Positive" if leg.opinion_about_report and leg.opinion_about_report.strip().lower() == "positive" else (leg.opinion_about_report.strip() if leg.opinion_about_report else "")
         flat["occupancy_250m"] = leg.occupancy_250m
         flat["tentative_rent"] = leg.tentative_rent
         flat["development_250m"] = leg.development_250m
-        flat["property_limit"] = leg.property_limit
+        if leg.property_limit and "within mc" in leg.property_limit.lower():
+            flat["property_limit"] = "Within MC  Limit"
+        elif leg.property_limit and "outside" in leg.property_limit.lower():
+            flat["property_limit"] = "Outside City Limit"
+        else:
+            flat["property_limit"] = leg.property_limit
         flat["adm"] = leg.adm
 
         # Reference & Remarks
@@ -252,7 +257,10 @@ class SmartFieldMapper:
         # 1. Standard mapping
         for field, coord in cls.STANDARD_COORDINATE_MAP.items():
             if field in flat and flat[field] is not None:
-                cell_values[coord] = flat[field]
+                val = flat[field]
+                if isinstance(val, float) and val.is_integer():
+                    val = int(val)
+                cell_values[coord] = val
 
             if field in confidences:
                 fc = confidences[field]
@@ -263,15 +271,33 @@ class SmartFieldMapper:
                     "review_reason": getattr(fc, "review_reason", None)
                 }
 
+        # Boundary direction subheaders
+        cell_values["A21"] = "East"
+        cell_values["B21"] = "West"
+        cell_values["C21"] = "North"
+        cell_values["D21"] = "South"
+        cell_values["A24"] = "East"
+        cell_values["B24"] = "West"
+        cell_values["C24"] = "North"
+        cell_values["D24"] = "South"
+
+        # Floor table column headers
+        cell_values["B51"] = "Actual Area (Sq Ft)"
+        cell_values["C51"] = "Permissible Area (Sq Ft)"
+        cell_values["D51"] = "Adopted Area (Sq Ft)"
+
         # Floor table rows B52:D61
         for i in range(10):
             r = 52 + i
             if f"floor_{i}_actual" in flat:
-                cell_values[f"B{r}"] = flat[f"floor_{i}_actual"]
+                val = flat[f"floor_{i}_actual"]
+                cell_values[f"B{r}"] = int(val) if isinstance(val, float) and val.is_integer() else val
             if f"floor_{i}_permissible" in flat:
-                cell_values[f"C{r}"] = flat[f"floor_{i}_permissible"]
+                val = flat[f"floor_{i}_permissible"]
+                cell_values[f"C{r}"] = int(val) if isinstance(val, float) and val.is_integer() else val
             if f"floor_{i}_adopted" in flat:
-                cell_values[f"D{r}"] = flat[f"floor_{i}_adopted"]
+                val = flat[f"floor_{i}_adopted"]
+                cell_values[f"D{r}"] = int(val) if isinstance(val, float) and val.is_integer() else val
 
         # Standard formulas
         cell_values["B48"] = "=B46*B47"

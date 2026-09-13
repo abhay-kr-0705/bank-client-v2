@@ -303,9 +303,12 @@ class SessionManager:
         }
 
     def _merge_report_data(self, incoming: ReportData):
-        """Merges incoming extracted data without overwriting already populated fields with blanks."""
+        """Merges incoming extracted data without overwriting already populated fields with blanks or lower-confidence data."""
         inc_dict = incoming.dict()
         curr_dict = self.report_data.dict()
+
+        # Header fields that should not be downgraded once established
+        PROTECTED_HEADER_FIELDS = {"applicant_name", "application_id", "geo_tag", "age_of_property", "dwelling_units_owned"}
 
         for section, sec_val in inc_dict.items():
             if isinstance(sec_val, dict):
@@ -321,10 +324,21 @@ class SessionManager:
                                         curr_dict[section]["floors"][i]["permissible_area"] = f_obj["permissible_area"]
                                     if f_obj.get("adopted_area"):
                                         curr_dict[section]["floors"][i]["adopted_area"] = f_obj["adopted_area"]
+                        elif section == "header" and k in PROTECTED_HEADER_FIELDS:
+                            current_val = curr_dict[section].get(k)
+                            if not current_val or current_val == 0 or current_val == "":
+                                curr_dict[section][k] = v
+                        elif section == "boundaries" and curr_dict[section].get(k):
+                            if len(str(v).strip()) > len(str(curr_dict[section].get(k)).strip()):
+                                curr_dict[section][k] = v
                         else:
                             curr_dict[section][k] = v
             elif isinstance(sec_val, str) and sec_val.strip():
-                curr_dict[section] = sec_val
+                if section == "remarks" and curr_dict.get("remarks"):
+                    if len(sec_val.strip()) > len(curr_dict["remarks"].strip()):
+                        curr_dict[section] = sec_val
+                else:
+                    curr_dict[section] = sec_val
 
         curr_dict["field_confidences"] = incoming.field_confidences
         curr_dict["overall_confidence"] = incoming.overall_confidence

@@ -39,8 +39,22 @@ class DocumentClassifier:
                 "is_template": True
             }
 
-        # 2. Field Notes DOCX
-        if ext == ".docx" or "field notes" in lower_name or "visit" in lower_name:
+        # 2. Valuation Draft or Technical Report PDF (Highest content authority)
+        report_keywords = [
+            "report", "valuation", "technical", "application id", "applicant name",
+            "type of property", "india shelter", "shelter report", "survey",
+            "inspection report", "adopted land", "built up area", "property limit"
+        ]
+        if ext == ".pdf" and (any(kw in lower_name for kw in ["valuation", "report", "technical", "sheet"]) or any(kw in lower_text for kw in report_keywords)):
+            return {
+                "category": cls.CATEGORY_VALUATION_DRAFT,
+                "label": "Valuation Technical Sheet",
+                "priority": 10,
+                "is_report": True
+            }
+
+        # 3. Field Notes DOCX (Inspection remarks & site observations)
+        if ext in [".docx", ".doc"] or "field notes" in lower_name or "visit" in lower_name:
             return {
                 "category": cls.CATEGORY_FIELD_NOTES,
                 "label": "Field Inspection Notes (DOCX)",
@@ -48,7 +62,43 @@ class DocumentClassifier:
                 "is_narrative_source": True
             }
 
-        # 3. Site Photos / Meter Photos
+        # 4. Title Deeds & Legal Ownership Chains (GPA, ATS, Sale Deed, Will)
+        deed_keywords = ["gpa", "ats", "deed", "sale deed", "will", "possession", "khasra", "agreement to sell", "power of attorney", "registry", "paper"]
+        if any(kw in lower_name for kw in deed_keywords) or any(kw in lower_text for kw in deed_keywords):
+            return {
+                "category": cls.CATEGORY_TITLE_DEED,
+                "label": "Title Deed / Ownership Chain",
+                "priority": 6,
+                "is_legal": True
+            }
+
+        # 5. Generic PDF (Check if draft report vs legal deed fallback)
+        if ext == ".pdf":
+            # If PDF has digital text mentioning applicant/application/property, treat as valuation report
+            if any(kw in lower_text for kw in ["applicant", "application", "property no", "khasra"]):
+                return {
+                    "category": cls.CATEGORY_VALUATION_DRAFT,
+                    "label": "Valuation Report PDF",
+                    "priority": 10,
+                    "is_report": True
+                }
+            return {
+                "category": cls.CATEGORY_TITLE_DEED,
+                "label": "Legal / Property PDF",
+                "priority": 6,
+                "is_legal": True
+            }
+
+        # 6. Supporting Documents (Tax receipts, Electricity Bills)
+        if "bill" in lower_name or "tax" in lower_name or "receipt" in lower_name or "electricity" in lower_name:
+            return {
+                "category": cls.CATEGORY_SUPPORTING_DOC,
+                "label": "Supporting Document",
+                "priority": 4,
+                "is_supporting": True
+            }
+
+        # 7. Site Photos / Meter Photos (Visual evidence & GPS coordinates)
         if ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
             photo_type = "Site Photo"
             if "meter" in lower_name or "meter" in lower_text:
@@ -61,40 +111,14 @@ class DocumentClassifier:
             return {
                 "category": cls.CATEGORY_SITE_PHOTO,
                 "label": photo_type,
-                "priority": 8,
+                "priority": 2,
                 "has_gps": has_exif_gps
             }
 
-        # 4. Title Deeds & Legal Ownership Chains
-        deed_keywords = ["gpa", "ats", "deed", "sale deed", "will", "possession", "khasra", "agreement to sell", "power of attorney", "registry"]
-        if any(kw in lower_name for kw in deed_keywords) or any(kw in lower_text for kw in deed_keywords):
-            return {
-                "category": cls.CATEGORY_TITLE_DEED,
-                "label": "Title Deed / Ownership Chain",
-                "priority": 7,
-                "is_legal": True
-            }
-
-        # 5. Valuation Draft or Technical Report PDF
-        if ext == ".pdf":
-            if "valuation" in lower_name or "report" in lower_name or "technical" in lower_name or "application id" in lower_text:
-                return {
-                    "category": cls.CATEGORY_VALUATION_DRAFT,
-                    "label": "Valuation Technical Sheet",
-                    "priority": 6,
-                    "is_report": True
-                }
-            return {
-                "category": cls.CATEGORY_TITLE_DEED,
-                "label": "Legal / Property PDF",
-                "priority": 5,
-                "is_legal": True
-            }
-
-        # 6. Supporting Documents
+        # Fallback
         return {
             "category": cls.CATEGORY_SUPPORTING_DOC,
             "label": "Supporting Document",
-            "priority": 1,
+            "priority": 3,
             "is_supporting": True
         }
