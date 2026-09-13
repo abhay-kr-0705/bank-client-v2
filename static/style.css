@@ -623,7 +623,14 @@ input:focus, select:focus, textarea:focus {
   background: var(--accent-primary);
   color: white;
   border-color: var(--accent-primary);
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
+  animation: pulseIcon 1.5s infinite;
+}
+
+@keyframes pulseIcon {
+  0% { transform: scale(1); box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
+  50% { transform: scale(1.08); box-shadow: 0 0 16px rgba(59, 130, 246, 0.8); }
+  100% { transform: scale(1); box-shadow: 0 0 6px rgba(59, 130, 246, 0.4); }
 }
 
 .step.completed {
@@ -634,6 +641,59 @@ input:focus, select:focus, textarea:focus {
   background: rgba(16, 185, 129, 0.2);
   border-color: var(--success-color);
   color: var(--success-color);
+}
+
+.pipeline-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.85rem;
+  padding: 0.35rem 0.6rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pipeline-live-msg {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #93c5fd;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pipeline-timer-badge {
+  font-size: 0.72rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.badge-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  margin-left: 0.4rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.progress-bar.error {
+  background: #ef4444 !important;
 }
 
 /* Two Column Workspace Grid */

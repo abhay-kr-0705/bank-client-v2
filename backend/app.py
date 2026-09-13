@@ -172,6 +172,21 @@ def remove_session_file(req: RemoveFileRequest):
     session = get_session(req.session_id)
     return session.remove_file(req.file_path)
 
+@app.get("/api/session/progress")
+def get_session_progress(session_id: Optional[str] = Query("default_session")):
+    """Returns real-time background processing metrics and current file for live progress tracking."""
+    session = get_session(session_id)
+    return getattr(session, "progress", {
+        "state": "idle",
+        "step": 0,
+        "percent": 0,
+        "message": "Ready",
+        "current_file": "",
+        "processed_files": 0,
+        "total_files": 0,
+        "elapsed_seconds": 0.0
+    })
+
 @app.get("/api/session/live-grid")
 def get_live_grid(
     session_id: Optional[str] = Query("default_session"),
@@ -263,7 +278,10 @@ def process_folder(req: FolderProcessRequest):
         folder_path = os.path.join(BASE_DIR, folder_path)
 
     if not os.path.exists(folder_path):
-        raise HTTPException(status_code=404, detail=f"Folder path not found: {folder_path}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Folder not found on host machine: '{folder_path}'. If you are accessing this app remotely from another PC or phone, please use the 'Add Files / ZIP' button to upload your documents directly!"
+        )
 
     session = get_session(req.session_id)
     saved_files = []

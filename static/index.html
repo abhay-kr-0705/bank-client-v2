@@ -96,7 +96,7 @@
               <i class="fa-solid fa-cloud-arrow-up"></i>
             </div>
             <h4>Drag & drop case files, folders, or .ZIP archives</h4>
-            <p class="dropzone-subtext">Upload all at once or add more files anytime: PDFs, Photos, DOCX, CSV, XLSX, and ZIP</p>
+            <p class="dropzone-subtext">Upload all at once or add more files anytime: PDFs, Photos, DOCX, CSV, XLSX, and ZIP <span class="badge-tag">Recommended for Remote & Local</span></p>
             <div class="dropzone-btns">
               <button class="btn btn-sm btn-outline" id="btnSelectFiles">
                 <i class="fa-solid fa-file-arrow-up"></i> Add Files / ZIP
@@ -111,8 +111,8 @@
         <!-- Direct Server Folder Path Input (Local Power-User Mode) -->
         <div class="path-ingest">
           <label for="folderPathInput" class="tooltip-label">
-            <span><i class="fa-solid fa-laptop-code"></i> Direct Workspace Folder Path</span>
-            <span class="info-tooltip-badge" title="Local Server Mode: Enter absolute local folder path to process gigabytes of files directly from disk without upload limits."><i class="fa-solid fa-circle-question text-accent"></i></span>
+            <span><i class="fa-solid fa-laptop-code"></i> Host Machine Folder Path <small class="text-muted">(Local Server Only)</small></span>
+            <span class="info-tooltip-badge" title="Local Server Mode: Process folders already stored on the host computer's hard drive."><i class="fa-solid fa-circle-question text-accent"></i></span>
           </label>
           <div class="input-group">
             <input type="text" id="folderPathInput" placeholder="Enter path to case folder e.g. D:\Cases\Case_01" value="">
@@ -121,7 +121,7 @@
             </button>
           </div>
           <p class="text-xs text-muted mt-2">
-            <i class="fa-solid fa-circle-info"></i> Direct disk loader: Automatically sanitizes Excel template and extracts all document sources.
+            <i class="fa-solid fa-circle-info"></i> For files stored directly on the host server disk. Remote users should upload files using the box on the left.
           </p>
         </div>
       </div>
@@ -131,8 +131,16 @@
         <div class="progress-bar-container">
           <div class="progress-bar" id="pipelineProgressBar" style="width: 0%;"></div>
         </div>
+        <div class="pipeline-status-row">
+          <div class="pipeline-live-msg" id="pipelineStatusText">
+            <i class="fa-solid fa-circle-notch fa-spin text-accent"></i> Initializing OCR pipeline...
+          </div>
+          <div class="pipeline-timer-badge" id="pipelineTimerBadge">
+            <i class="fa-solid fa-stopwatch"></i> Elapsed: 0s
+          </div>
+        </div>
         <div class="pipeline-steps">
-          <div class="step active" id="step1">
+          <div class="step" id="step1">
             <div class="step-icon"><i class="fa-solid fa-file-import"></i></div>
             <span>1. Ingest Documents</span>
           </div>

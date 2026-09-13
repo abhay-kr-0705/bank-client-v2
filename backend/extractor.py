@@ -504,18 +504,33 @@ class CaseExtractor:
         }]
         return report
 
-    def process_file_list(self, file_paths: List[str]) -> ReportData:
+    def process_file_list(self, file_paths: List[str], progress_callback: Optional[Any] = None) -> ReportData:
         """Processes a list of document file paths, aggregates texts, runs extraction & validation."""
         files_info = []
         aggregated_text = []
         found_gps = None
 
-        for fpath in file_paths:
-            if not os.path.exists(fpath) or not os.path.isfile(fpath):
-                continue
+        valid_paths = [
+            p for p in file_paths
+            if os.path.exists(p) and os.path.isfile(p) and not os.path.basename(p).startswith("~$") and not os.path.basename(p).startswith(".") and not p.lower().endswith(".xlsx")
+        ]
+        total_files = len(valid_paths)
+
+        for idx, fpath in enumerate(valid_paths):
             fname = os.path.basename(fpath)
-            if fname.startswith("~$") or fname.startswith(".") or fname.lower().endswith(".xlsx"):
-                continue
+            if progress_callback:
+                pct = 20 + int(((idx + 0.5) / max(total_files, 1)) * 60)
+                try:
+                    progress_callback(
+                        step=2,
+                        percent=min(pct, 80),
+                        message=f"OCR & Vision analysis ({idx + 1}/{total_files}): {fname}",
+                        current_file=fname,
+                        processed=idx + 1,
+                        total=total_files
+                    )
+                except Exception:
+                    pass
 
             try:
                 f_res = self.inspect_file(fpath)
@@ -535,22 +550,49 @@ class CaseExtractor:
             except Exception as e:
                 print(f"[Warning] Error inspecting file {fpath}: {e}")
 
+        if progress_callback:
+            try:
+                progress_callback(
+                    step=3,
+                    percent=85,
+                    message="Matching cross-document entities & resolving property details...",
+                    current_file="",
+                    processed=total_files,
+                    total=total_files
+                )
+            except Exception:
+                pass
+
         all_text = "\n\n".join(aggregated_text)
         report = self.dynamic_entity_extractor(all_text, found_gps)
+
+        if progress_callback:
+            try:
+                progress_callback(
+                    step=3,
+                    percent=92,
+                    message="Validating compliance, boundaries & calculating field confidences...",
+                    current_file="",
+                    processed=total_files,
+                    total=total_files
+                )
+            except Exception:
+                pass
+
         report = ValuationValidator.validate_and_score(report)
         report.raw_files_summary = files_info
         return report
 
-    def process_case_folder(self, folder_path: str) -> ReportData:
+    def process_case_folder(self, folder_path: str, progress_callback: Optional[Any] = None) -> ReportData:
         """Full offline pipeline: Ingest files -> Classify -> Local OCR/Parsing -> Semantic Extractor -> Validation."""
-        scan_res = self.inspect_folder(folder_path)
-        all_text = scan_res["all_text"]
-        gps = scan_res["gps_from_exif"]
+        file_paths = []
+        for root, _, files in os.walk(folder_path):
+            for f in sorted(files):
+                if not f.startswith("~$") and not f.startswith(".") and not f.lower().endswith(".xlsx"):
+                    file_paths.append(os.path.join(root, f))
 
-        report = self.dynamic_entity_extractor(all_text, gps)
-        report = ValuationValidator.validate_and_score(report)
+        report = self.process_file_list(file_paths, progress_callback=progress_callback)
         report.case_name = os.path.basename(folder_path.rstrip("/\\"))
-        report.raw_files_summary = scan_res["files"]
         return report
 
     def ingest_incremental_files(self, existing_report: ReportData, new_file_paths: List[str]) -> ReportData:

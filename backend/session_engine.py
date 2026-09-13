@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import zipfile
 import uuid
@@ -45,6 +46,46 @@ class SessionManager:
         self.extra_rows = 0
         self.extra_cols = 0
         self.active_sheet = 0
+
+        # Real-time progress tracker state
+        self.progress: Dict[str, Any] = {
+            "state": "idle",
+            "step": 0,
+            "percent": 0,
+            "message": "Ready",
+            "current_file": "",
+            "processed_files": 0,
+            "total_files": 0,
+            "start_time": 0.0,
+            "elapsed_seconds": 0.0
+        }
+
+    def update_progress(
+        self,
+        step: int,
+        percent: int,
+        message: str,
+        current_file: str = "",
+        processed: int = 0,
+        total: int = 0,
+        state: str = "processing"
+    ):
+        """Updates live execution progress metrics for client polling."""
+        st = self.progress.get("start_time") or 0.0
+        if state == "processing" and (not st or self.progress.get("state") in ["idle", "completed"]):
+            st = time.time()
+        elapsed = round(time.time() - st, 1) if st else 0.0
+        self.progress = {
+            "state": state,
+            "step": step,
+            "percent": percent,
+            "message": message,
+            "current_file": current_file,
+            "processed_files": processed,
+            "total_files": total,
+            "start_time": st,
+            "elapsed_seconds": elapsed
+        }
 
     def _sanitize_active_template(self):
         engine = TemplateEngine(self.template_path)
@@ -130,9 +171,12 @@ class SessionManager:
         extracts data via OCR/NLP, merges with session state, and maps to template.
         If any .xlsx template is present, auto-activates and sanitizes it as the target template.
         """
+        self.update_progress(step=1, percent=8, message="Receiving and unpacking uploaded documents...", state="processing")
         all_new_files = []
         for p in new_file_paths:
             all_new_files.extend(self.unpack_zip_if_needed(p))
+
+        self.update_progress(step=1, percent=16, message=f"Organizing {len(all_new_files)} document file(s)...", state="processing")
 
         # Copy any incoming external files to self.docs_dir
         saved_paths = []
@@ -162,9 +206,21 @@ class SessionManager:
         new_paths = [p for p in saved_paths if not p.lower().endswith(".xlsx") and not os.path.basename(p).startswith("~$")]
         docs_to_process = new_paths if new_paths else current_doc_paths
 
-        extractor = CaseExtractor(api_key=api_key, model_name=model_name)
-        new_report = extractor.process_file_list(docs_to_process)
+        def progress_cb(step: int, percent: int, message: str, current_file: str = "", processed: int = 0, total: int = 0):
+            self.update_progress(
+                step=step,
+                percent=percent,
+                message=message,
+                current_file=current_file,
+                processed=processed,
+                total=total,
+                state="processing"
+            )
 
+        extractor = CaseExtractor(api_key=api_key, model_name=model_name)
+        new_report = extractor.process_file_list(docs_to_process, progress_callback=progress_cb)
+
+        self.update_progress(step=4, percent=96, message="Mapping extracted entities to Excel spreadsheet grid...", state="processing")
         # Merge new extracted entities into active session report_data
         self._merge_report_data(new_report)
 
@@ -182,6 +238,8 @@ class SessionManager:
                         "type": os.path.splitext(f)[1].lower(),
                         "status": "Processed"
                     })
+
+        self.update_progress(step=4, percent=100, message=f"Successfully extracted {len(docs_to_process)} documents & updated grid!", state="completed")
 
         return {
             "success": True,

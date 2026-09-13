@@ -547,8 +547,8 @@ document.addEventListener('DOMContentLoaded', () => {
   async function handleFileUploads(files) {
     if (!files || files.length === 0) return;
 
-    showToast(`Ingesting ${files.length} document(s) & extracting data...`, 'info');
-    runPipelineAnimation();
+    showToast(`Uploading ${files.length} document(s) & starting OCR...`, 'info');
+    startPipelineTracker(`Uploading & extracting ${files.length} document(s)...`);
 
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
@@ -568,6 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const result = await res.json();
+      finishPipelineTracker(true, `Successfully processed ${result.files ? result.files.length : files.length} document(s)!`);
       currentReportData = result.report_data;
       currentGridData = result.grid;
       
@@ -578,6 +579,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnDownloadReport.disabled = false;
       showToast('Documents ingested & mapped to template cells!', 'success');
     } catch (e) {
+      finishPipelineTracker(false, e.message);
       showToast(`Upload Error: ${e.message}`, 'error');
       console.error(e);
     }
@@ -591,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     showToast(`Scanning & Extracting: ${folderPath}`, 'info');
-    runPipelineAnimation();
+    startPipelineTracker(`Scanning host folder: ${folderPath}...`);
 
     try {
       const res = await fetch('/api/process-folder', {
@@ -606,6 +608,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const result = await res.json();
+      finishPipelineTracker(true, `Folder processed! ${result.files ? result.files.length : 'All'} files mapped.`);
       currentReportData = result.data;
       currentGridData = result.grid;
       
@@ -616,6 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnDownloadReport.disabled = false;
       showToast('Case extracted and live grid populated!', 'success');
     } catch (e) {
+      finishPipelineTracker(false, e.message);
       showToast(`Error: ${e.message}`, 'error');
       console.error(e);
     }
@@ -624,6 +628,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Single-File Force Extraction Endpoint Call
   async function processSingleFile(filePath, fileName) {
     showToast(`Force extracting from: ${fileName}...`, 'info');
+    startPipelineTracker(`Force analyzing single file: ${fileName}...`);
     try {
       const res = await fetch('/api/session/process-file', {
         method: 'POST',
@@ -637,6 +642,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const result = await res.json();
+      finishPipelineTracker(true, `Extracted ${fileName} successfully!`);
       currentReportData = result.report_data;
       currentGridData = result.grid;
       
@@ -647,6 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnDownloadReport.disabled = false;
       showToast(`Extracted data from ${fileName} & updated live grid!`, 'success');
     } catch (e) {
+      finishPipelineTracker(false, e.message);
       showToast(`File Extraction Error: ${e.message}`, 'error');
     }
   }
@@ -670,38 +677,113 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 7. Pipeline Tracker Animation
-  function runPipelineAnimation() {
-    pipelineTracker.style.display = 'block';
-    pipelineProgressBar.style.width = '15%';
-    
+  // 7. Real-Time Pipeline Progress Tracker (Live Backend Polling & Accurate Timer)
+  let pipelinePollInterval = null;
+  let pipelineTimerInterval = null;
+  let pipelineStartTime = 0;
+
+  function startPipelineTracker(customMsg = "Initializing OCR and document processing...") {
+    if (pipelinePollInterval) clearInterval(pipelinePollInterval);
+    if (pipelineTimerInterval) clearInterval(pipelineTimerInterval);
+
     const s1 = document.getElementById('step1');
     const s2 = document.getElementById('step2');
     const s3 = document.getElementById('step3');
     const s4 = document.getElementById('step4');
+    const statusText = document.getElementById('pipelineStatusText');
+    const timerBadge = document.getElementById('pipelineTimerBadge');
+
+    pipelineTracker.style.display = 'block';
+    pipelineProgressBar.className = 'progress-bar';
+    pipelineProgressBar.style.width = '10%';
 
     s1.className = 'step active';
     s2.className = 'step';
     s3.className = 'step';
     s4.className = 'step';
 
-    setTimeout(() => {
-      pipelineProgressBar.style.width = '45%';
-      s1.className = 'step completed';
-      s2.className = 'step active';
-    }, 400);
+    if (statusText) statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-accent"></i> ${customMsg}`;
+    pipelineStartTime = Date.now();
 
-    setTimeout(() => {
-      pipelineProgressBar.style.width = '75%';
-      s2.className = 'step completed';
-      s3.className = 'step active';
-    }, 900);
+    // Elapsed timer updater
+    pipelineTimerInterval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - pipelineStartTime) / 1000);
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
+      const timeStr = `${mins > 0 ? mins + 'm ' : ''}${secs}s`;
+      if (timerBadge) {
+        timerBadge.innerHTML = `<i class="fa-solid fa-stopwatch text-accent"></i> Elapsed: ${timeStr} • Est: ~30-50s`;
+      }
+    }, 1000);
 
-    setTimeout(() => {
+    // Live polling from backend
+    pipelinePollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/session/progress?session_id=${currentSessionId}`);
+        if (!res.ok) return;
+        const p = await res.json();
+
+        if (p && p.percent !== undefined) {
+          pipelineProgressBar.style.width = Math.max(10, Math.min(p.percent, 96)) + '%';
+          
+          if (statusText && p.message) {
+            statusText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-accent"></i> ${p.message}`;
+          }
+
+          // Update step states based on real step (1 to 4)
+          const currentStep = p.step || 1;
+          s1.className = currentStep > 1 ? 'step completed' : (currentStep === 1 ? 'step active' : 'step');
+          s2.className = currentStep > 2 ? 'step completed' : (currentStep === 2 ? 'step active' : 'step');
+          s3.className = currentStep > 3 ? 'step completed' : (currentStep === 3 ? 'step active' : 'step');
+          s4.className = currentStep === 4 ? 'step active' : 'step'; // Only completed when response arrives!
+        }
+      } catch (err) {
+        // Silently retry on transient network errors
+      }
+    }, 600);
+  }
+
+  function finishPipelineTracker(success = true, message = "") {
+    if (pipelinePollInterval) {
+      clearInterval(pipelinePollInterval);
+      pipelinePollInterval = null;
+    }
+    if (pipelineTimerInterval) {
+      clearInterval(pipelineTimerInterval);
+      pipelineTimerInterval = null;
+    }
+
+    const s1 = document.getElementById('step1');
+    const s2 = document.getElementById('step2');
+    const s3 = document.getElementById('step3');
+    const s4 = document.getElementById('step4');
+    const statusText = document.getElementById('pipelineStatusText');
+    const timerBadge = document.getElementById('pipelineTimerBadge');
+
+    const totalSeconds = Math.floor((Date.now() - pipelineStartTime) / 1000);
+
+    if (success) {
       pipelineProgressBar.style.width = '100%';
+      s1.className = 'step completed';
+      s2.className = 'step completed';
       s3.className = 'step completed';
       s4.className = 'step completed';
-    }, 1400);
+      
+      if (statusText) {
+        statusText.innerHTML = `<i class="fa-solid fa-circle-check text-success"></i> ${message || 'Extraction complete! Grid and formulas populated.'}`;
+      }
+      if (timerBadge) {
+        timerBadge.innerHTML = `<i class="fa-solid fa-check text-success"></i> Total Time: ${totalSeconds}s`;
+      }
+    } else {
+      pipelineProgressBar.classList.add('error');
+      if (statusText) {
+        statusText.innerHTML = `<i class="fa-solid fa-circle-xmark text-danger"></i> ${message || 'Extraction interrupted or failed.'}`;
+      }
+      if (timerBadge) {
+        timerBadge.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-danger"></i> Stopped at ${totalSeconds}s`;
+      }
+    }
   }
 
   // 8. Render Files List in Left Pane with Granular Action Controls
