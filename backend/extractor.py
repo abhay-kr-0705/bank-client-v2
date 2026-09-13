@@ -343,16 +343,29 @@ class CaseExtractor:
             report.land_measurements.adopted_land_area_sqft = calc_area
 
         # 8. Pincode & City
-        pin_m = re.search(r'\b([1-9]\d{5})\b', all_text)
+        pin_m = re.search(r'(?:Delhi|Pincode|Pin|PIN\s*Code)[\s\:\-]*([1-9]\d{5})\b', all_text, re.IGNORECASE)
+        if not pin_m and report.address.address_docs:
+            pin_m = re.search(r'\b([1-9]\d{5})\b', report.address.address_docs)
+        if not pin_m and report.address.address_site:
+            pin_m = re.search(r'\b([1-9]\d{5})\b', report.address.address_site)
+        if not pin_m:
+            pin_m = re.search(r'\b([1-9]\d{5})\b', all_text)
         if pin_m:
             report.address.pincode = pin_m.group(1)
 
         city_m = re.search(r'(?:City|District)\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
         if city_m:
             c_val = city_m.group(1).strip()
-            if not c_val.lower().startswith("pincode"):
+            if not c_val.lower().startswith("pincode") and not c_val.lower().startswith("depart"):
                 report.address.city = c_val
                 report.address.district = c_val
+        if not report.address.city or report.address.city.lower() in ["departnment", "department"]:
+            if "new delhi" in all_text.lower():
+                report.address.city = "New Delhi"
+                report.address.district = "New Delhi"
+            elif "delhi" in all_text.lower():
+                report.address.city = "Delhi"
+                report.address.district = "Delhi"
 
         # 9. Street / Landmark / Village / Colony
         street_m = re.search(r'(Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+|Street\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)

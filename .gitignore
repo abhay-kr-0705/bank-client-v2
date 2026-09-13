@@ -41,6 +41,7 @@ venv.bak/
 uploads/
 outputs/*.xlsx
 !outputs/.gitkeep
+*.zip
 
 # OS
 .DS_Store
