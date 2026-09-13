@@ -679,6 +679,56 @@
     </div>
   </div>
 
+  <!-- Real-Time Excel Compilation & Download HUD -->
+  <div class="excel-gen-hud" id="excelGenHud" style="display:none;">
+    <div class="excel-gen-card glass-panel">
+      <div class="excel-gen-top">
+        <div class="excel-gen-title">
+          <div class="excel-gen-icon-wrap">
+            <i class="fa-solid fa-file-excel text-success"></i>
+          </div>
+          <div>
+            <h4 id="excelGenTitle">Generating Valuation Report</h4>
+            <p class="text-xs text-muted" id="excelGenSubtitle">100% Template Blueprint & Formula Preservation</p>
+          </div>
+        </div>
+        <div class="excel-gen-timer-badge" id="excelGenTimer">
+          <i class="fa-solid fa-stopwatch"></i> 0.0s
+        </div>
+      </div>
+      <div class="excel-gen-progress-container">
+        <div class="excel-gen-progress-bar" id="excelGenProgressBar" style="width: 15%;"></div>
+      </div>
+      <div class="excel-gen-status-row">
+        <div class="excel-gen-live-msg" id="excelGenStatusMsg">
+          <i class="fa-solid fa-circle-notch fa-spin text-accent"></i> Loading template blueprint...
+        </div>
+        <div class="excel-gen-percent-badge" id="excelGenPercent">15%</div>
+      </div>
+      <div class="excel-gen-stepper">
+        <div class="gen-step active" id="genStep1">
+          <span class="step-num">1</span>
+          <span class="step-label">Blueprint</span>
+        </div>
+        <div class="gen-step-line" id="genLine1"></div>
+        <div class="gen-step" id="genStep2">
+          <span class="step-num">2</span>
+          <span class="step-label">Inject Data</span>
+        </div>
+        <div class="gen-step-line" id="genLine2"></div>
+        <div class="gen-step" id="genStep3">
+          <span class="step-num">3</span>
+          <span class="step-label">Formulas</span>
+        </div>
+        <div class="gen-step-line" id="genLine3"></div>
+        <div class="gen-step" id="genStep4">
+          <span class="step-num">4</span>
+          <span class="step-label">Download</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container -->
   <div class="toast-container" id="toastContainer"></div>
 

@@ -72,7 +72,7 @@ class SessionManager:
     ):
         """Updates live execution progress metrics for client polling."""
         st = self.progress.get("start_time") or 0.0
-        if state == "processing" and (not st or self.progress.get("state") in ["idle", "completed"]):
+        if state in ["processing", "generating_excel"] and (not st or self.progress.get("state") in ["idle", "completed"]):
             st = time.time()
         elapsed = round(time.time() - st, 1) if st else 0.0
         self.progress = {
@@ -432,8 +432,22 @@ class SessionManager:
         from openpyxl.styles import PatternFill
         from openpyxl.comments import Comment
 
+        self.update_progress(
+            step=1,
+            percent=15,
+            message="Loading blank template blueprint & original styles...",
+            state="generating_excel"
+        )
+
         wb = openpyxl.load_workbook(self.sanitized_template_path, data_only=False)
         ws = wb.active
+
+        self.update_progress(
+            step=2,
+            percent=40,
+            message="Populating 82+ extracted fields & user cell overrides...",
+            state="generating_excel"
+        )
 
         review_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
         cell_values, cell_metadata = SmartFieldMapper.map_to_cells_with_metadata(self.report_data)
@@ -468,9 +482,30 @@ class SessionManager:
             except Exception as e:
                 print(f"[Export Cell Warning: {coord} -> {e}]")
 
+        self.update_progress(
+            step=3,
+            percent=70,
+            message="Verifying mathematical formulas & cell dependencies...",
+            state="generating_excel"
+        )
+
+        self.update_progress(
+            step=4,
+            percent=88,
+            message="Compressing OpenPyXML spreadsheet package & saving .xlsx...",
+            state="generating_excel"
+        )
+
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         wb.save(output_path)
         wb.close()
+
+        self.update_progress(
+            step=4,
+            percent=100,
+            message="Excel report generated successfully! Starting download...",
+            state="completed"
+        )
         return output_path
 
 # Global Session Store

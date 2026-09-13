@@ -1725,3 +1725,258 @@ body.dark-theme .sheet-tab.active {
   border-radius: 50%;
 }
 
+/* Button Generating State */
+.btn-generating {
+  opacity: 0.85 !important;
+  pointer-events: none !important;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.4) !important;
+  border-color: rgba(16, 185, 129, 0.6) !important;
+}
+
+.btn-gen-time {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 0.85em;
+  margin-left: 0.3rem;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+/* Real-Time Floating Excel Generation HUD */
+.excel-gen-hud {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 9999;
+  width: 440px;
+  max-width: calc(100vw - 2.5rem);
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: hudSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes hudSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.excel-gen-card {
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 16px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.6), 0 0 24px rgba(16, 185, 129, 0.18);
+}
+
+body.light-theme .excel-gen-card {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.14), 0 0 20px rgba(16, 185, 129, 0.12);
+}
+
+.excel-gen-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+.excel-gen-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.excel-gen-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.excel-gen-title h4 {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.excel-gen-timer-badge {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+body.light-theme .excel-gen-timer-badge {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+}
+
+.excel-gen-progress-container {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+  position: relative;
+}
+
+body.light-theme .excel-gen-progress-container {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.excel-gen-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #06b6d4, #3b82f6);
+  border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.excel-gen-status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  margin-bottom: 0.95rem;
+}
+
+.excel-gen-live-msg {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.excel-gen-percent-badge {
+  font-weight: 700;
+  color: #10b981;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.excel-gen-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.light-theme .excel-gen-stepper {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.gen-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.4;
+  transition: all 0.3s ease;
+}
+
+.gen-step.active {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.gen-step.active .step-num {
+  background: #10b981;
+  color: #fff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.6);
+}
+
+.gen-step.active .step-label {
+  color: #6ee7b7;
+  font-weight: 700;
+}
+
+body.light-theme .gen-step.active .step-label {
+  color: #059669;
+}
+
+.gen-step.done {
+  opacity: 0.95;
+}
+
+.gen-step.done .step-num {
+  background: #059669;
+  color: #fff;
+}
+
+.gen-step.done .step-label {
+  color: var(--text-muted);
+}
+
+.gen-step .step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition: var(--transition-fast);
+}
+
+body.light-theme .gen-step .step-num {
+  background: rgba(0, 0, 0, 0.1);
+  color: #334155;
+}
+
+.gen-step .step-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.gen-step-line {
+  flex: 1;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0 6px;
+  margin-bottom: 1rem;
+  transition: background 0.3s ease;
+}
+
+body.light-theme .gen-step-line {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.gen-step-line.active {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+

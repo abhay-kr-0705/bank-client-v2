@@ -4,8 +4,13 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Session State
-  let currentSessionId = "default_session";
+  // Session State - Isolated per browser session or URL query parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  let currentSessionId = urlParams.get('session_id') || sessionStorage.getItem('banktech_session_id');
+  if (!currentSessionId) {
+    currentSessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+    sessionStorage.setItem('banktech_session_id', currentSessionId);
+  }
   let currentReportData = null;
   let currentGridData = null;
   let activeFiles = [];
@@ -1134,9 +1139,101 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('totalAdoptedArea').textContent = `=SUM(D52:D61) (${sumAdopted})`;
   }
 
-  // 12. Final Excel Generation & Download
+  // 12. Final Excel Generation & Download with Real-Time HUD Tracker
+  let excelGenTimerInterval = null;
+  let excelGenPollInterval = null;
+
   async function generateAndDownloadExcel() {
-    showToast('Compiling Excel Report with Formula Engine...', 'info');
+    const buttons = [btnDownloadReport, btnGenerateExcel].filter(Boolean);
+    
+    // Check if already running
+    if (buttons.some(b => b.classList.contains('btn-generating'))) return;
+
+    // Cache original button content
+    const originalButtonContents = buttons.map(b => b.innerHTML);
+    buttons.forEach(b => {
+      b.disabled = true;
+      b.classList.add('btn-generating');
+      b.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Generating... <span class="btn-gen-time">0.0s</span>`;
+    });
+
+    // Show Excel HUD
+    const hud = document.getElementById('excelGenHud');
+    const hudProgressBar = document.getElementById('excelGenProgressBar');
+    const hudStatusMsg = document.getElementById('excelGenStatusMsg');
+    const hudPercent = document.getElementById('excelGenPercent');
+    const hudTimer = document.getElementById('excelGenTimer');
+    const hudTitle = document.getElementById('excelGenTitle');
+    const genSteps = [
+      document.getElementById('genStep1'),
+      document.getElementById('genStep2'),
+      document.getElementById('genStep3'),
+      document.getElementById('genStep4')
+    ];
+    const genLines = [
+      document.getElementById('genLine1'),
+      document.getElementById('genLine2'),
+      document.getElementById('genLine3')
+    ];
+
+    if (hud) {
+      hud.style.display = 'block';
+      hud.style.opacity = '1';
+      hud.style.transform = 'translateY(0)';
+      if (hudProgressBar) hudProgressBar.style.width = '15%';
+      if (hudPercent) hudPercent.textContent = '15%';
+      if (hudTitle) hudTitle.textContent = 'Generating Valuation Report';
+      if (hudStatusMsg) {
+        hudStatusMsg.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-accent"></i> Loading template blueprint & styles...`;
+      }
+      if (hudTimer) hudTimer.innerHTML = `<i class="fa-solid fa-stopwatch"></i> 0.0s`;
+      genSteps.forEach((s, idx) => {
+        if (s) s.className = 'gen-step' + (idx === 0 ? ' active' : '');
+      });
+      genLines.forEach(l => { if (l) l.className = 'gen-step-line'; });
+    }
+
+    const startTime = performance.now();
+    let currentPercent = 15;
+
+    // Stopwatch ticker (updates every 100ms)
+    excelGenTimerInterval = setInterval(() => {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      if (hudTimer) hudTimer.innerHTML = `<i class="fa-solid fa-stopwatch"></i> ${elapsed}s`;
+      document.querySelectorAll('.btn-gen-time').forEach(el => el.textContent = `${elapsed}s`);
+    }, 100);
+
+    // Live progress poller from backend session state (updates every 250ms)
+    excelGenPollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/session/progress?session_id=${currentSessionId}`);
+        if (!res.ok) return;
+        const p = await res.json();
+        if (p.state === 'generating_excel' || p.state === 'completed') {
+          const pct = Math.max(currentPercent, Math.min(p.percent || 15, 96));
+          currentPercent = pct;
+          if (hudProgressBar) hudProgressBar.style.width = pct + '%';
+          if (hudPercent) hudPercent.textContent = pct + '%';
+          if (hudStatusMsg && p.message) {
+            hudStatusMsg.innerHTML = `<i class="fa-solid fa-gear fa-spin text-accent"></i> ${p.message}`;
+          }
+          // Update Stepper badges
+          const stepNum = p.step || 1;
+          genSteps.forEach((s, idx) => {
+            if (s) {
+              if (idx < stepNum - 1) s.className = 'gen-step done';
+              else if (idx === stepNum - 1) s.className = 'gen-step active';
+              else s.className = 'gen-step';
+            }
+          });
+          genLines.forEach((l, idx) => {
+            if (l) l.className = 'gen-step-line' + (idx < stepNum - 1 ? ' active' : '');
+          });
+        }
+      } catch (err) {
+        // Silently tolerate transient polling error
+      }
+    }, 250);
 
     try {
       const res = await fetch(`/api/session/download-excel?session_id=${currentSessionId}`, {
@@ -1148,11 +1245,24 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(err.detail || 'Download failed');
       }
 
-      const blob = await res.blob();
-      const applicantName = (currentReportData?.header?.applicant_name || 'Valuation_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const appId = (currentReportData?.header?.application_id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const filename = `${applicantName}_${appId}.xlsx`.replace(/__+/g, '_');
+      // Read filename from Content-Disposition header if available
+      let filename = 'Valuation_Report.xlsx';
+      const disposition = res.headers.get('Content-Disposition');
+      if (disposition && disposition.indexOf('filename=') !== -1) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, '');
+        }
+      } else {
+        const applicantName = (currentReportData?.header?.applicant_name || 'Valuation_Report').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const appId = (currentReportData?.header?.application_id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        filename = `${applicantName}_${appId}.xlsx`.replace(/__+/g, '_');
+      }
 
+      const blob = await res.blob();
+      const totalElapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+
+      // Trigger browser download
       const blobUrl = window.URL.createObjectURL(blob);
       const downloadLink = document.createElement('a');
       downloadLink.style.display = 'none';
@@ -1160,14 +1270,62 @@ document.addEventListener('DOMContentLoaded', () => {
       downloadLink.setAttribute('download', filename);
       document.body.appendChild(downloadLink);
       downloadLink.click();
-      
+
       setTimeout(() => {
         window.URL.revokeObjectURL(blobUrl);
         downloadLink.remove();
       }, 500);
 
-      showToast(`Excel file ${filename} downloaded successfully!`, 'success');
+      // Clean up intervals
+      clearInterval(excelGenTimerInterval);
+      clearInterval(excelGenPollInterval);
+
+      // Complete HUD state
+      if (hudProgressBar) hudProgressBar.style.width = '100%';
+      if (hudPercent) hudPercent.textContent = '100%';
+      if (hudTitle) hudTitle.textContent = 'Report Downloaded!';
+      if (hudStatusMsg) {
+        hudStatusMsg.innerHTML = `<i class="fa-solid fa-circle-check text-success"></i> ${filename} ready in ${totalElapsed}s!`;
+      }
+      genSteps.forEach(s => { if (s) s.className = 'gen-step done'; });
+      genLines.forEach(l => { if (l) l.className = 'gen-step-line active'; });
+
+      // Buttons show success state
+      buttons.forEach(b => {
+        b.classList.remove('btn-generating');
+        b.innerHTML = `<i class="fa-solid fa-circle-check text-success"></i> Downloaded (${totalElapsed}s)!`;
+      });
+
+      showToast(`Excel file "${filename}" compiled and downloaded in ${totalElapsed}s!`, 'success');
+
+      // Auto-hide HUD after 3 seconds and restore buttons
+      setTimeout(() => {
+        if (hud) {
+          hud.style.opacity = '0';
+          hud.style.transform = 'translateY(12px)';
+          setTimeout(() => { hud.style.display = 'none'; }, 300);
+        }
+        buttons.forEach((b, idx) => {
+          b.disabled = false;
+          b.innerHTML = originalButtonContents[idx];
+        });
+      }, 3000);
+
     } catch (e) {
+      clearInterval(excelGenTimerInterval);
+      clearInterval(excelGenPollInterval);
+
+      if (hud) {
+        if (hudStatusMsg) hudStatusMsg.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-error"></i> Error: ${e.message}`;
+        setTimeout(() => { hud.style.display = 'none'; }, 3500);
+      }
+
+      buttons.forEach((b, idx) => {
+        b.disabled = false;
+        b.classList.remove('btn-generating');
+        b.innerHTML = originalButtonContents[idx];
+      });
+
       showToast(`Generation Error: ${e.message}`, 'error');
       console.error(e);
     }
