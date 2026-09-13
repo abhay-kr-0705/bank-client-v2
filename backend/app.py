@@ -3,6 +3,7 @@ import sys
 import tempfile
 import shutil
 import uuid
+import threading
 from typing import Optional, List, Any, Union
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -146,12 +147,27 @@ async def upload_session_files(
         saved_paths.append(target_path)
 
     active_api_key = api_key or SERVER_CONFIG["gemini_api_key"]
-    res = session.ingest_documents_incrementally(
-        saved_paths,
-        api_key=active_api_key,
-        model_name=SERVER_CONFIG["model_name"]
-    )
-    return res
+    model_name = SERVER_CONFIG["model_name"]
+
+    def bg_worker():
+        try:
+            session.ingest_documents_incrementally(
+                saved_paths,
+                api_key=active_api_key,
+                model_name=model_name
+            )
+        except Exception as e:
+            session.update_progress(step=1, percent=0, message=f"Extraction Error: {str(e)}", state="error")
+
+    threading.Thread(target=bg_worker, daemon=True).start()
+
+    return {
+        "success": True,
+        "status": "processing",
+        "message": f"Uploaded and queued {len(saved_paths)} file(s) for background extraction.",
+        "session_id": session_id,
+        "files_count": len(saved_paths)
+    }
 
 @app.post("/api/session/process-file")
 def process_single_file_endpoint(req: SingleFileProcessRequest):
@@ -294,17 +310,27 @@ def process_folder(req: FolderProcessRequest):
                 saved_files.append(dst)
 
     active_api_key = req.api_key or SERVER_CONFIG["gemini_api_key"]
-    res = session.ingest_documents_incrementally(
-        saved_files,
-        api_key=active_api_key,
-        model_name=req.model_name or SERVER_CONFIG["model_name"]
-    )
+    model_name = req.model_name or SERVER_CONFIG["model_name"]
+
+    def bg_worker():
+        try:
+            session.ingest_documents_incrementally(
+                saved_files,
+                api_key=active_api_key,
+                model_name=model_name
+            )
+        except Exception as e:
+            session.update_progress(step=1, percent=0, message=f"Extraction Error: {str(e)}", state="error")
+
+    threading.Thread(target=bg_worker, daemon=True).start()
+
     return {
         "success": True,
-        "data": res["report_data"],
+        "status": "processing",
+        "message": f"Queued {len(saved_files)} file(s) for background extraction.",
+        "session_id": req.session_id,
         "source_folder": folder_path,
-        "files": res["files"],
-        "grid": res["grid"]
+        "files_count": len(saved_files)
     }
 
 @app.post("/api/generate-excel")

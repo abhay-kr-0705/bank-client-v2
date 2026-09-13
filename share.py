@@ -59,7 +59,7 @@ def copy_to_clipboard(text: str):
 def run_uvicorn_in_thread():
     """Starts the FastAPI app in-process on port 8000."""
     import uvicorn
-    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, log_level="warning")
+    uvicorn.run("backend.app:app", host="0.0.0.0", port=8000, log_level="warning")
 
 def run():
     print("=" * 72)

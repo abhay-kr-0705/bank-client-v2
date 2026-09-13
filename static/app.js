@@ -548,11 +548,52 @@ document.addEventListener('DOMContentLoaded', () => {
   btnCloseTemplatePreview.addEventListener('click', () => templatePreviewModal.style.display = 'none');
   btnConfirmTemplatePreview.addEventListener('click', () => templatePreviewModal.style.display = 'none');
 
+  // Safe JSON parser that catches HTML 502/504/524 proxy errors gracefully
+  async function safeJson(res) {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      if (text.includes("524") || text.includes("timeout")) {
+        return { detail: "Cloudflare proxy timeout (524). Background task is actively continuing on host server." };
+      }
+      if (text.includes("502") || text.includes("Bad Gateway")) {
+        return { detail: "Bad Gateway (502). Host server connection was interrupted." };
+      }
+      return { detail: `Server error (${res.status} ${res.statusText || 'non-JSON response'})` };
+    }
+  }
+
+  let isSyncingCompletedState = false;
+  async function syncCompletedSessionState(message = "") {
+    if (isSyncingCompletedState) return;
+    isSyncingCompletedState = true;
+    try {
+      const res = await fetch(`/api/session/live-grid?session_id=${currentSessionId}`);
+      const data = await safeJson(res);
+      if (data.success && data.grid) {
+        currentReportData = data.report_data;
+        currentGridData = data.grid;
+        populateFormWithData(currentReportData);
+        renderFilesList(data.files || []);
+        renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+        btnDownloadReport.disabled = false;
+        finishPipelineTracker(true, message || 'Extraction complete! Grid and formulas populated.');
+        showToast('Extraction complete! Live grid & formulas populated.', 'success');
+      }
+    } catch (e) {
+      console.warn("Failed to sync completed session:", e);
+      finishPipelineTracker(true, message);
+    } finally {
+      isSyncingCompletedState = false;
+    }
+  }
+
   // 6. Incremental File & Multi-format Ingestion
   async function handleFileUploads(files) {
     if (!files || files.length === 0) return;
 
-    showToast(`Uploading ${files.length} document(s) & starting OCR...`, 'info');
+    showToast(`Uploading ${files.length} document(s) & queuing OCR...`, 'info');
     startPipelineTracker(`Uploading & extracting ${files.length} document(s)...`);
 
     const formData = new FormData();
@@ -567,22 +608,16 @@ document.addEventListener('DOMContentLoaded', () => {
         body: formData
       });
 
+      const result = await safeJson(res);
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Upload failed');
+        throw new Error(result.detail || 'Upload failed');
       }
 
-      const result = await res.json();
-      finishPipelineTracker(true, `Successfully processed ${result.files ? result.files.length : files.length} document(s)!`);
-      currentReportData = result.report_data;
-      currentGridData = result.grid;
-      
-      populateFormWithData(currentReportData);
-      renderFilesList(result.files || []);
-      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
-
-      btnDownloadReport.disabled = false;
-      showToast('Documents ingested & mapped to template cells!', 'success');
+      if (result.status === 'processing') {
+        showToast(`Files uploaded! Running RapidOCR in background...`, 'info');
+      } else if (result.grid) {
+        syncCompletedSessionState(`Successfully processed ${files.length} document(s)!`);
+      }
     } catch (e) {
       finishPipelineTracker(false, e.message);
       showToast(`Upload Error: ${e.message}`, 'error');
@@ -607,22 +642,16 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify({ folder_path: folderPath.trim(), session_id: currentSessionId })
       });
 
+      const result = await safeJson(res);
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'Extraction failed');
+        throw new Error(result.detail || 'Extraction failed');
       }
 
-      const result = await res.json();
-      finishPipelineTracker(true, `Folder processed! ${result.files ? result.files.length : 'All'} files mapped.`);
-      currentReportData = result.data;
-      currentGridData = result.grid;
-      
-      populateFormWithData(currentReportData);
-      renderFilesList(result.files || currentReportData.raw_files_summary || []);
-      renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
-      
-      btnDownloadReport.disabled = false;
-      showToast('Case extracted and live grid populated!', 'success');
+      if (result.status === 'processing') {
+        showToast(`Folder queued! RapidOCR pipeline running in background...`, 'info');
+      } else if (result.grid) {
+        syncCompletedSessionState(`Folder processed! All files mapped.`);
+      }
     } catch (e) {
       finishPipelineTracker(false, e.message);
       showToast(`Error: ${e.message}`, 'error');
@@ -726,7 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const res = await fetch(`/api/session/progress?session_id=${currentSessionId}`);
         if (!res.ok) return;
-        const p = await res.json();
+        const p = await safeJson(res);
 
         if (p && p.percent !== undefined) {
           pipelineProgressBar.style.width = Math.max(10, Math.min(p.percent, 96)) + '%';
@@ -740,7 +769,14 @@ document.addEventListener('DOMContentLoaded', () => {
           s1.className = currentStep > 1 ? 'step completed' : (currentStep === 1 ? 'step active' : 'step');
           s2.className = currentStep > 2 ? 'step completed' : (currentStep === 2 ? 'step active' : 'step');
           s3.className = currentStep > 3 ? 'step completed' : (currentStep === 3 ? 'step active' : 'step');
-          s4.className = currentStep === 4 ? 'step active' : 'step'; // Only completed when response arrives!
+          s4.className = currentStep === 4 ? 'step active' : 'step';
+
+          // Automatic completion and error handling
+          if (p.state === 'completed') {
+            await syncCompletedSessionState(p.message);
+          } else if (p.state === 'error') {
+            finishPipelineTracker(false, p.message);
+          }
         }
       } catch (err) {
         // Silently retry on transient network errors
