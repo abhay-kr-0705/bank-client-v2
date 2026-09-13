@@ -1,3 +1,9 @@
+"""
+Robust Offline Valuation Document Extractor
+Implements 100% local, offline extraction without any cloud AI API key:
+INPUT DOCUMENTS -> Document Classifier -> Document Processor -> OCR + Vision Layer -> Document Understanding + Semantic Extraction -> Structured JSON + Confidence Scores
+"""
+
 import os
 import re
 import json
@@ -6,11 +12,15 @@ from typing import List, Dict, Any, Optional, Tuple
 from PIL import Image
 import fitz  # PyMuPDF
 from docx import Document
+
 from .models import (
     ReportData, HeaderInfo, AddressInfo, BoundariesInfo,
     SolarRoofVicinity, LandMeasurements, ConstructionFloors,
     AccommodationInfo, LegalStatutoryChecks, ReferenceEnquiry, FloorArea
 )
+from .classifier import DocumentClassifier
+from .ocr_engine import OfflineOCREngine
+from .validator import ValuationValidator
 
 def extract_exif_gps(image_path: str) -> Optional[Tuple[float, float]]:
     """Extracts GPS coordinates from image EXIF metadata if present."""
@@ -61,7 +71,10 @@ def parse_docx_file(filepath: str) -> str:
         return f"[DOCX Error: {e}]"
 
 def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, List[bytes]]:
-    """Extracts digital text and renders high-res page images for OCR/Vision."""
+    """
+    Extracts digital text and extracts page images.
+    If a page has zero digital text (scanned PDF), runs local RapidOCR on the page pixmap.
+    """
     text_content = []
     page_images = []
     try:
@@ -69,13 +82,18 @@ def parse_pdf_text_and_images(filepath: str, max_pages: int = 25) -> Tuple[str, 
         for page_num in range(min(len(doc), max_pages)):
             page = doc[page_num]
             txt = page.get_text()
+
+            # If digital text exists, use it
             if txt.strip():
                 text_content.append(f"--- [Page {page_num + 1}] ---\n{txt}")
-            
-            # Render page at 150 DPI for multimodal OCR vision
-            pix = page.get_pixmap(dpi=150)
-            img_bytes = pix.tobytes("jpeg")
-            page_images.append(img_bytes)
+            else:
+                # Scanned page: render pixmap and run local OfflineOCREngine
+                pix = page.get_pixmap(dpi=150)
+                img_bytes = pix.tobytes("jpeg")
+                ocr_text, _ = OfflineOCREngine.extract_text_from_image_bytes(img_bytes)
+                if ocr_text.strip():
+                    text_content.append(f"--- [Page {page_num + 1} (OCR)] ---\n{ocr_text}")
+                page_images.append(img_bytes)
         doc.close()
     except Exception as e:
         text_content.append(f"[PDF Error: {e}]")
@@ -91,12 +109,14 @@ def parse_text_or_csv_file(filepath: str) -> str:
 
 
 class CaseExtractor:
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
-        self.api_key = api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "offline-engine"):
+        self.api_key = api_key
         self.model_name = model_name
 
     def inspect_file(self, file_path: str) -> Dict[str, Any]:
-        """Extracts raw text, images, and metadata from a single file."""
+        """
+        Step 1 & 2: Classify document and process content via digital parsing or local OCR.
+        """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -106,31 +126,43 @@ class CaseExtractor:
         text = ""
         images = []
         gps = None
-        file_type = "unknown"
 
-        if ext == ".xlsx":
-            file_type = "target_excel_template"
-        elif ext == ".docx":
-            file_type = "field_notes_docx"
-            text = parse_docx_file(file_path)
-        elif ext == ".pdf":
-            file_type = "property_pdf"
-            text, images = parse_pdf_text_and_images(file_path, max_pages=20)
-        elif ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
-            file_type = "site_photo"
+        if ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
             gps_coords = extract_exif_gps(file_path)
             if gps_coords:
                 gps = f"{gps_coords[0]}, {gps_coords[1]}"
+
+        # Document Classifier
+        classification = DocumentClassifier.classify_document(
+            filename=filename,
+            preview_text="",
+            has_exif_gps=bool(gps)
+        )
+
+        # Document Processor
+        if ext == ".xlsx":
+            pass
+        elif ext == ".docx":
+            text = parse_docx_file(file_path)
+        elif ext == ".pdf":
+            text, images = parse_pdf_text_and_images(file_path, max_pages=20)
+        elif ext in [".jpeg", ".jpg", ".png", ".webp", ".bmp", ".tiff"]:
             with open(file_path, "rb") as img_f:
-                images.append(img_f.read())
+                img_data = img_f.read()
+                images.append(img_data)
+                # Run local OCR on image if it's not purely a photo
+                ocr_t, _ = OfflineOCREngine.extract_text_from_image_bytes(img_data)
+                if ocr_t.strip():
+                    text = f"[OCR from {filename}]:\n{ocr_t}"
         elif ext in [".txt", ".csv", ".log"]:
-            file_type = "notes_text"
             text = parse_text_or_csv_file(file_path)
 
         return {
             "filename": filename,
             "path": file_path,
-            "type": file_type,
+            "type": classification["category"],
+            "classification_label": classification["label"],
+            "priority": classification["priority"],
             "size_bytes": size,
             "size_display": f"{round(size / 1024, 1)} KB",
             "text": text,
@@ -139,7 +171,7 @@ class CaseExtractor:
         }
 
     def inspect_folder(self, folder_path: str) -> Dict[str, Any]:
-        """Scans folder and categorizes raw files."""
+        """Scans folder, classifies all raw files, and aggregates text and metadata."""
         if not os.path.exists(folder_path):
             raise FileNotFoundError(f"Folder not found: {folder_path}")
 
@@ -161,14 +193,16 @@ class CaseExtractor:
                 "filename": f_res["filename"],
                 "path": f_res["path"],
                 "type": f_res["type"],
+                "classification_label": f_res["classification_label"],
+                "priority": f_res["priority"],
                 "size_bytes": f_res["size_bytes"],
                 "size_display": f_res["size_display"]
             })
 
             if f_res["text"]:
-                aggregated_text.append(f"=== FILE: {filename} ===\n{f_res['text']}")
+                aggregated_text.append(f"=== DOCUMENT [{f_res['classification_label']}]: {filename} ===\n{f_res['text']}")
             if f_res["images"]:
-                images_to_process.extend(f_res["images"][:4])
+                images_to_process.extend(f_res["images"][:2])
             if f_res["gps"] and not found_gps:
                 found_gps = f_res["gps"]
 
@@ -181,18 +215,25 @@ class CaseExtractor:
 
     def dynamic_entity_extractor(self, all_text: str, gps_exif: Optional[str] = None) -> ReportData:
         """
-        Universal NLP & regex entity extractor for Indian banking/valuation cases.
-        Extracts names, IDs, addresses, boundaries, dimensions, accommodation, legal checks, and remarks.
+        Document Understanding & Semantic Extraction Engine (100% Offline & Pure Regex/NLP).
+        Extracts exact field values from raw document text.
+        CRITICAL RULE: If no match is found, keeps the field completely empty ("" or 0.0).
+        NO HARDCODED FALLBACKS.
         """
         report = ReportData()
+        if not all_text or not all_text.strip():
+            if gps_exif:
+                report.header.geo_tag = gps_exif
+            return report
+
         clean_text = " ".join(all_text.split())
 
-        # 1. Application ID
-        app_id_m = re.search(r'(?:Application\s*ID|App\s*No\.?|Loan\s*No\.?|Ref\s*No\.?)\s*[:\-]?\s*([A-Za-z0-9\-_/]+)', all_text, re.IGNORECASE)
+        # 1. Application ID (e.g. AP-10524478, DEL-29182, Loan No: 129381)
+        app_id_m = re.search(r'(?:Application\s*ID|App\s*No\.?|Loan\s*No\.?|Ref\s*No\.?|Case\s*No\.?)\s*[:\-]?\s*([A-Za-z0-9\-_/]{4,25})', all_text, re.IGNORECASE)
         if app_id_m:
             report.header.application_id = app_id_m.group(1).strip()
         else:
-            id_fallback = re.search(r'(AP[-_]\d{5,12})', all_text, re.IGNORECASE)
+            id_fallback = re.search(r'\b(AP[-_]\d{5,12})\b', all_text, re.IGNORECASE)
             if id_fallback:
                 report.header.application_id = id_fallback.group(1).strip()
 
@@ -200,46 +241,64 @@ class CaseExtractor:
         name_m = re.search(r'(?:Applicant\s*Name|Borrower\s*Name|Customer\s*Name)\s*[:\-]?\s*([A-Za-z\.\s]{3,40})', all_text, re.IGNORECASE)
         if name_m:
             candidate = name_m.group(1).strip()
-            candidate = re.split(r'(\n|\r|Type|Address|Age|Plot|and|Son|Wife)', candidate, flags=re.IGNORECASE)[0].strip()
-            report.header.applicant_name = candidate
+            candidate = re.split(r'(\n|\r|Type|Address|Age|Plot|and|Son|Wife|Phone)', candidate, flags=re.IGNORECASE)[0].strip()
+            if len(candidate) >= 3 and not candidate.lower().startswith("type"):
+                report.header.applicant_name = candidate
         else:
             purchaser_m = re.search(r'(?:Purchaser|Second\s*Party)\s*[:\-]?\s*(?:Mrs?\.?|Smt\.?|Sh\.?|Shri)?\s*([A-Za-z\s]{3,35})', all_text, re.IGNORECASE)
             if purchaser_m:
                 cand = purchaser_m.group(1).strip()
                 cand = re.split(r'(\n|\r|W/o|S/o|D/o|and|for)', cand, flags=re.IGNORECASE)[0].strip()
-                report.header.applicant_name = f"Mrs. {cand}" if "sunita" in cand.lower() else cand
+                if len(cand) >= 3:
+                    report.header.applicant_name = cand
 
         # 3. Geo Tag / GPS Coordinates
-        geo_m = re.search(r'(?:Geo[\s\-]*Tag|Coordinates?|Geo-ordinates?)\s*(?:of\s*Subject\s*Property\s*are)?\s*[:\-]?\s*(\d{2}\.\d{4,8})\s*,\s*(\d{2}\.\d{4,8})', all_text, re.IGNORECASE)
+        geo_m = re.search(r'(?:Geo[\s\-]*Tag|Coordinates?|Geo-ordinates?)\s*(?:of\s*Subject\s*Property\s*are)?\s*[:\-]?\s*(\d{1,2}\.\d{4,8})\s*,\s*(\d{1,3}\.\d{4,8})', all_text, re.IGNORECASE)
         if geo_m:
             report.header.geo_tag = f"{geo_m.group(1)}, {geo_m.group(2)}"
         elif gps_exif:
             report.header.geo_tag = gps_exif
         else:
-            raw_coords = re.search(r'(\d{2}\.\d{4,8})\s*,\s*(\d{2}\.\d{4,8})', all_text)
+            raw_coords = re.search(r'\b(\d{2}\.\d{4,8})\s*,\s*(\d{2}\.\d{4,8})\b', all_text)
             if raw_coords:
                 report.header.geo_tag = f"{raw_coords.group(1)}, {raw_coords.group(2)}"
 
-        # 4. Property Type, Age & Structure
+        # 4. Property Type
         if re.search(r'\b(Row\s*House)\b', all_text, re.IGNORECASE):
             report.header.property_type = "Row House"
         elif re.search(r'\b(Independent\s*Floor)\b', all_text, re.IGNORECASE):
             report.header.property_type = "Independent Floor"
         elif re.search(r'\b(Apartment|Flat)\b', all_text, re.IGNORECASE):
             report.header.property_type = "Apartment"
+        elif re.search(r'\b(Commercial\s*Building|Commercial\s*Property)\b', all_text, re.IGNORECASE):
+            report.header.property_type = "Commercial Building"
 
+        # Percentage of completion
+        comp_m = re.search(r'(?:Percentage\s*of\s*Completion|Completion\s*Percent(?:age)?)\s*[:\-]?\s*(\d{1,3})\s*%', all_text, re.IGNORECASE)
+        if comp_m:
+            report.header.completion_percent = round(float(comp_m.group(1)) / 100.0, 2)
+        elif "100%" in all_text or "fully constructed" in all_text.lower():
+            report.header.completion_percent = 1.0
+
+        # Age of Property
         age_m = re.search(r'(\d{1,2}\s*(?:Years?|Yrs?))\s*(?:old|age)?', all_text, re.IGNORECASE)
         if age_m:
             num = re.search(r'\d+', age_m.group(1)).group(0)
             report.header.age_of_property = f"{int(num):02d} Years"
 
+        # Structure Type
         if "load bearing" in all_text.lower():
             report.header.structure_type = "Load Bearing"
         elif "rcc" in all_text.lower():
             report.header.structure_type = "RCC"
 
+        # Dwelling Units
+        units_m = re.search(r'(?:Dwelling\s*Units?\s*Owned)\s*[:\-]?\s*(\d+)', all_text, re.IGNORECASE)
+        if units_m:
+            report.header.dwelling_units_owned = int(units_m.group(1))
+
         # 5. Property / Plot / Khasra Identification
-        plot_m = re.search(r'(?:Plot\s*No\.?|Property\s*(?:Bearing\s*Plot\s*)?No\.?)\s*([A-Za-z0-9\-_]+)', all_text, re.IGNORECASE)
+        plot_m = re.search(r'(?:Plot\s*No\.?|Property\s*(?:Bearing\s*Plot\s*)?No\.?)\s*([A-Za-z0-9\-_/]+)', all_text, re.IGNORECASE)
         if plot_m:
             plot_val = plot_m.group(1).strip()
             report.address.plot_house_khasra = f"Property No. {plot_val}" if not plot_val.lower().startswith("property") else plot_val
@@ -269,23 +328,22 @@ class CaseExtractor:
             sqft_calc = round(sqyds_val * 9.0, 1)
             report.land_measurements.land_area_site_sqft = f"{sqft_calc} Sqft"
             report.land_measurements.adopted_land_area_sqft = sqft_calc
-        elif report.land_measurements.land_length and report.land_measurements.land_breadth:
+        elif report.land_measurements.land_length > 0 and report.land_measurements.land_breadth > 0:
             calc_area = round(report.land_measurements.land_length * report.land_measurements.land_breadth, 1)
             report.land_measurements.land_area_site_sqft = f"{calc_area} Sqft"
             report.land_measurements.adopted_land_area_sqft = calc_area
 
         # 8. Pincode & City
-        pin_m = re.search(r'\b(1100\d{2}|1200\d{2}|2013\d{2}|3020\d{2}|\d{6})\b', all_text)
+        pin_m = re.search(r'\b([1-9]\d{5})\b', all_text)
         if pin_m:
             report.address.pincode = pin_m.group(1)
 
-        city_m = re.search(r'(?:City|State)\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
-        if city_m and "delhi" in city_m.group(1).lower():
-            report.address.city = "New Delhi"
-            report.address.district = "New Delhi"
-        elif "delhi" in all_text.lower():
-            report.address.city = "New Delhi"
-            report.address.district = "New Delhi"
+        city_m = re.search(r'(?:City|District)\s*[:\-]?\s*([A-Za-z\s]{3,20})', all_text, re.IGNORECASE)
+        if city_m:
+            c_val = city_m.group(1).strip()
+            if not c_val.lower().startswith("pincode"):
+                report.address.city = c_val
+                report.address.district = c_val
 
         # 9. Street / Landmark / Village / Colony
         street_m = re.search(r'(Gali\s*No\.?\s*[0-9A-Za-z\-_]+|Road\s*No\.?\s*[0-9A-Za-z\-_]+|Street\s*[0-9A-Za-z\-_]+)', all_text, re.IGNORECASE)
@@ -295,136 +353,112 @@ class CaseExtractor:
         landmark_m = re.search(r'(?:Nearest\s*Landmark|Landmark)\s*[:\-]?\s*([A-Za-z0-9\.\s]{3,35})', all_text, re.IGNORECASE)
         if landmark_m:
             report.address.nearest_landmark = landmark_m.group(1).strip()
-        elif "aggarwal" in all_text.lower():
-            report.address.nearest_landmark = "Nearby Aggarwal Store"
 
         colony_m = re.search(r'(?:Abadi\s*Known\s*as|Colony|Enclave|Garden|Vihar|Nagar)\s*[:\-]?\s*([A-Za-z\s]+(?:Extn\.?|Extension|Vihar|Nagar|Garden|Enclave))', all_text, re.IGNORECASE)
         if colony_m:
             report.address.colony_name = colony_m.group(1).strip()
-        elif "vipin garden" in all_text.lower():
-            report.address.colony_name = "Vipin garden Extn."
 
         village_m = re.search(r'(?:Revenue\s*Estate\s*of\s*Village[\- ]*|Village[\- ]+)([A-Za-z]+)', all_text, re.IGNORECASE)
         if village_m:
             report.address.village_name = village_m.group(1).strip()
-        elif "nawada" in all_text.lower():
-            report.address.village_name = "Nawada"
 
         # 10. Document Address & Site Address
-        doc_match = re.search(r'(Property\s*(?:Bearing\s*)?Plot\s*No\.[^\n\r]*?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
+        doc_match = re.search(r'(Property\s*(?:Bearing\s*)?Plot\s*No\.[^\n\r]{10,180}?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
         if doc_match:
             report.address.address_docs = doc_match.group(1).strip()
-        elif "nawada" in all_text.lower() and "vipin garden" in all_text.lower():
-            report.address.address_docs = "Property Bearing Plot No. 8-B, Out of Khasra No. 75 & 76, Situated in the Revenue Estate of Village-Nawada, Delhi State Delhi in the Abadi Known as Vipin garden Extn., Uttam Nagar, New Delhi-110059"
 
-        site_match = re.search(r'(Property\s*No\.\s*[0-9A-Za-z\-_]+,\s*Situated\s*in[^\n\r]*?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
+        site_match = re.search(r'(Property\s*No\.\s*[0-9A-Za-z\-_]+,\s*Situated\s*in[^\n\r]{10,180}?(?:110\d{3}|\d{6}))', clean_text, re.IGNORECASE)
         if site_match:
             report.address.address_site = site_match.group(1).strip()
-        elif "nawada" in all_text.lower() and "gali no" in all_text.lower():
-            report.address.address_site = "Property No. 8-B, Situated in Village-Nawada, Gali No. 14, Vipin garden Extn., Uttam Nagar, New Delhi-110059"
 
         # 11. Boundaries (Site vs Deed)
         # Site Boundaries
-        site_east_m = re.search(r'(?:Site\s*East|Meter\s*No\.?\s*21901820|Others\s*Property\s*/\s*Meter\s*No\.?\s*21901820)', all_text, re.IGNORECASE)
-        site_west_m = re.search(r'(?:Site\s*West|Meter\s*No\.?\s*46215085|Others\s*Property\s*/\s*Meter\s*No\.?\s*46215085)', all_text, re.IGNORECASE)
-        
-        if "21901820" in all_text:
-            report.boundaries.site_east = "Others Property/Meter No. 21901820"
-        if "46215085" in all_text:
-            report.boundaries.site_west = "Others Property/Meter No. 46215085"
-        
-        report.boundaries.site_north = "Road 23 Ft Wide" if ("23 ft" in all_text.lower() or "23 feet" in all_text.lower()) else "Road"
-        report.boundaries.site_south = "Others Property"
+        site_east_m = re.search(r'(?:Site\s*East|East\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if site_east_m:
+            report.boundaries.site_east = site_east_m.group(1).strip()
 
-        # Title Deed Boundaries
-        if "plot no. 8-a" in all_text.lower() or "8-a" in all_text.lower():
-            report.boundaries.deed_east = "Plot No. 8-A"
-        if "plot no. 9-a" in all_text.lower() or "9-a" in all_text.lower():
-            report.boundaries.deed_west = "Plot No. 9-A"
-        report.boundaries.deed_north = "Road 23 Ft Wide" if ("23 ft" in all_text.lower()) else "Road"
-        report.boundaries.deed_south = "Other Land"
+        site_west_m = re.search(r'(?:Site\s*West|West\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if site_west_m:
+            report.boundaries.site_west = site_west_m.group(1).strip()
 
-        # Boundary matching & occupancy
-        report.boundaries.boundary_matching = "Yes"
-        report.boundaries.mismatch_remarks = "NA"
-        if "seller" in all_text.lower():
-            report.boundaries.occupancy_status = "Seller"
+        site_north_m = re.search(r'(?:Site\s*North|North\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if site_north_m:
+            report.boundaries.site_north = site_north_m.group(1).strip()
 
-        # 12. Solar & Roof Vicinity
-        report.solar_roof_vicinity.solar_install_location = "Ground"
-        report.solar_roof_vicinity.is_outreach = "No"
-        report.solar_roof_vicinity.population_1km = "Above 5000"
-        report.solar_roof_vicinity.primary_schools_1km = 1
-        report.solar_roof_vicinity.secondary_schools_1km = 1
-        report.solar_roof_vicinity.govt_institutions_vicinity = 1
+        site_south_m = re.search(r'(?:Site\s*South|South\s*as\s*per\s*site)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if site_south_m:
+            report.boundaries.site_south = site_south_m.group(1).strip()
 
-        # 13. Accommodation & Floors
+        # Deed Boundaries
+        deed_east_m = re.search(r'(?:Deed\s*East|East\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if deed_east_m:
+            report.boundaries.deed_east = deed_east_m.group(1).strip()
+
+        deed_west_m = re.search(r'(?:Deed\s*West|West\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if deed_west_m:
+            report.boundaries.deed_west = deed_west_m.group(1).strip()
+
+        deed_north_m = re.search(r'(?:Deed\s*North|North\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if deed_north_m:
+            report.boundaries.deed_north = deed_north_m.group(1).strip()
+
+        deed_south_m = re.search(r'(?:Deed\s*South|South\s*as\s*per\s*deed)\s*[:\-]?\s*([^\n\r,]{3,40})', all_text, re.IGNORECASE)
+        if deed_south_m:
+            report.boundaries.deed_south = deed_south_m.group(1).strip()
+
+        # Boundary Matching & Occupancy
+        if "boundary matching" in all_text.lower():
+            bm_m = re.search(r'Boundary\s*Matching\s*[:\-]?\s*(Yes|No)', all_text, re.IGNORECASE)
+            if bm_m:
+                report.boundaries.boundary_matching = bm_m.group(1).capitalize()
+        if re.search(r'\b(Seller|Borrower|Tenant|Vacant)\b', all_text, re.IGNORECASE):
+            occ_m = re.search(r'(?:Occupancy\s*Status)\s*[:\-]?\s*([A-Za-z]+)', all_text, re.IGNORECASE)
+            if occ_m:
+                report.boundaries.occupancy_status = occ_m.group(1).capitalize()
+
+        # 12. Floors & Accommodation
         if re.search(r'(?:S\+UG\+3|S\s*\+\s*UG\s*\+\s*3|5\s*storied|5\s*floor)', all_text, re.IGNORECASE):
             report.accommodation.no_of_floors = 5
-        
-        report.accommodation.toilet_available = "Yes"
-        report.accommodation.no_of_lifts = 0
-        report.accommodation.apartments_per_floor = 1
-        report.accommodation.electricity_meter_installed = "Yes"
-        report.accommodation.electricity_meter_number = "NA"
+        elif re.search(r'(\d+)\s*(?:storied|floors?)', all_text, re.IGNORECASE):
+            fl_m = re.search(r'(\d+)\s*(?:storied|floors?)', all_text, re.IGNORECASE)
+            report.accommodation.no_of_floors = int(fl_m.group(1))
 
-        # 14. Legal Checks & Person Met
+        # 13. Legal Checks & Person Met
         person_m = re.search(r'(?:Person\s*Meet|Met\s*at\s*site|Contact\s*Person)\s*[:\-]?\s*(?:Mr\.?|Mrs\.?|Sh\.?)?\s*([A-Za-z\s]{3,25})', all_text, re.IGNORECASE)
         if person_m:
             cand = person_m.group(1).strip()
-            cand = re.split(r'(\n|\r|Reation|Relation|Applicant|Son|Phone)', cand, flags=re.IGNORECASE)[0].strip()
-            if "gauarv" in cand.lower() or "gaurav" in cand.lower():
-                report.legal_checks.person_met = "Mr. Gaurav"
-            else:
+            cand = re.split(r'(\n|\r|Relation|Applicant|Son|Phone)', cand, flags=re.IGNORECASE)[0].strip()
+            if len(cand) >= 3 and not cand.lower().startswith("relation"):
                 report.legal_checks.person_met = f"Mr. {cand}" if not cand.lower().startswith("mr") else cand
-        elif "gaurav" in all_text.lower() or "gauarv" in all_text.lower():
-            report.legal_checks.person_met = "Mr. Gaurav"
 
         rel_m = re.search(r'(?:Reation|Relation)\s*(?:with\s*(?:the\s*)?(?:Property\s*)?Owner)?\s*[:\-]?\s*([A-Za-z\'\s]{3,25})', all_text, re.IGNORECASE)
         if rel_m:
             cand = rel_m.group(1).strip()
             cand = re.split(r'(\n|\r|Property|MC|Phone)', cand, flags=re.IGNORECASE)[0].strip()
-            report.legal_checks.relation_with_owner = cand
-        elif "applicant's son" in all_text.lower() or "son" in all_text.lower():
-            report.legal_checks.relation_with_owner = "Applicant's Son"
+            if len(cand) >= 3:
+                report.legal_checks.relation_with_owner = cand
 
-        report.legal_checks.documents_name = "Other"
-        report.legal_checks.property_situated_at = "MC"
-        report.legal_checks.is_sanction_plan_compliant = "No"
-        report.legal_checks.pathway_clear = "Yes"
-        report.legal_checks.sanction_plan_approval_no_date = "No"
-        report.legal_checks.is_disaster_prone = "No"
-        report.legal_checks.approach_by_public_road = "Yes"
-        report.legal_checks.near_nala = "No"
-        report.legal_checks.in_hte_line = "No"
-        report.legal_checks.utilities_in_vicinity = "Yes"
-        report.legal_checks.approved_land_master_plan = "Residential"
-        report.legal_checks.width_of_public_road = "23 Ft Wide"
-        report.legal_checks.current_uses = "Residential"
-        report.legal_checks.opinion_about_report = "Negative"
-        report.legal_checks.occupancy_250m = "80%-90%"
-        report.legal_checks.development_250m = "80%-90%"
-        report.legal_checks.property_limit = "Within MC Limit"
-        report.legal_checks.adm = "Average"
+        if "road" in all_text.lower():
+            road_w_m = re.search(r'(\d+\s*(?:Ft|Feet|Meter|Mtr)\s*Wide)', all_text, re.IGNORECASE)
+            if road_w_m:
+                report.legal_checks.width_of_public_road = road_w_m.group(1).strip()
 
-        # 15. Reference & Feedback
+        # 14. Reference & Feedback
         phone_m = re.search(r'\b([6-9]\d{9})\b', all_text)
         if phone_m:
             report.reference.reference_mobile = phone_m.group(1)
-        
+
         fb_m = re.search(r'(?:Feedback)\s*[:\-]?\s*([0-9\sA-Za-z\.\,\-toperSqyds]{3,40})(?:\n|\r|$)', all_text, re.IGNORECASE)
         if fb_m and not fb_m.group(1).strip().startswith("1.") and "subject property" not in fb_m.group(1).lower():
             report.reference.feedback = fb_m.group(1).strip()
-        elif "1 l to 1.10 l" in all_text.lower() or "sqyds" in all_text.lower():
-            report.reference.feedback = "1 L to 1.10 L per Sqyds"
 
-        # 16. Narrative Remarks
-        remarks_block_m = re.search(r'(1\.\s*Subject Property[\s\S]*?13\.\s*[^\n\r]+)', all_text)
+        # 15. Narrative Remarks
+        remarks_block_m = re.search(r'(1\.\s*Subject Property[\s\S]*?(?:\d+\.\s*[^\n\r]+(?:\n|\r|$))+)', all_text)
         if remarks_block_m:
             report.remarks = remarks_block_m.group(1).strip() + "\n"
         else:
             numbered_m = re.findall(r'(\d+\.\s*[^\n\r]+)', all_text)
-            if len(numbered_m) >= 5:
+            if len(numbered_m) >= 3:
                 report.remarks = "\n".join(numbered_m) + "\n"
 
         return report
@@ -433,234 +467,59 @@ class CaseExtractor:
         """Processes a single file and extracts entities."""
         f_res = self.inspect_file(file_path)
         text = f_res["text"]
-        images = f_res["images"]
         gps = f_res["gps"]
 
-        report = None
-        if self.api_key and (text or images):
-            report = self.extract_with_gemini(text, images)
-
-        if not report:
-            report = self.dynamic_entity_extractor(text, gps)
-
+        report = self.dynamic_entity_extractor(text, gps)
+        report = ValuationValidator.validate_and_score(report)
         report.raw_files_summary = [{
             "filename": f_res["filename"],
             "path": f_res["path"],
             "type": f_res["type"],
+            "classification_label": f_res["classification_label"],
+            "priority": f_res["priority"],
             "size_bytes": f_res["size_bytes"],
             "size_display": f_res["size_display"]
         }]
         return report
 
-    def extract_with_gemini(self, all_text: str, images: List[bytes]) -> Optional[ReportData]:
-        """Calls Google Gemini Vision & Multimodal LLM to perform deep visual OCR."""
-        if not self.api_key:
-            return None
-
-        try:
-            from google import genai
-            from google.genai import types
-
-            client = genai.Client(api_key=self.api_key)
-            prompt = f"""
-You are an expert Indian Housing Finance & Banking Property Valuation Technical Extraction AI.
-Analyze all provided documents (scanned title deeds, GPA chains, ATS, possession letters, site notes, GPS photos) and extract exact field values for the India Shelter Technical Report template.
-
-DOCUMENT TEXT EXTRACTED:
-{all_text[:35000]}
-
-Extract and return a JSON object matching this schema:
-{{
-  "header": {{
-    "report_title": "India Shelter Report",
-    "application_id": "string",
-    "applicant_name": "string",
-    "property_type": "Row House | Independent Floor | Apartment | Commercial Building",
-    "completion_percent": 1.0,
-    "structure_type": "RCC | Load Bearing | Temporary",
-    "age_of_property": "string (e.g. 08 Years)",
-    "dwelling_units_owned": 1,
-    "geo_tag": "lat, long string"
-  }},
-  "address": {{
-    "street_name": "string",
-    "nearest_landmark": "string",
-    "village_name": "string",
-    "city": "string",
-    "plot_house_khasra": "string",
-    "floor_number": "Entire Property",
-    "colony_name": "string",
-    "address_site": "Full string",
-    "address_docs": "Full string",
-    "pincode": "string or int",
-    "district": "string"
-  }},
-  "boundaries": {{
-    "site_east": "string",
-    "site_west": "string",
-    "site_north": "string",
-    "site_south": "string",
-    "deed_east": "string",
-    "deed_west": "string",
-    "deed_north": "string",
-    "deed_south": "string",
-    "boundary_matching": "Yes | No",
-    "mismatch_remarks": "NA",
-    "occupancy_status": "Seller | Borrower | Tenant | Vacant"
-  }},
-  "solar_roof_vicinity": {{
-    "solar_install_location": "Ground | Rooftop | None",
-    "shadow_free_roof_sqft": 0,
-    "parapet_wall_height": 0,
-    "cracks_in_roof": 0,
-    "broken_above_roof": 0,
-    "access_to_reach_roof": 0,
-    "roof_length_sqft": 15,
-    "roof_breadth_sqft": 38,
-    "is_outreach": "No | Yes",
-    "population_1km": "Above 5000",
-    "primary_schools_1km": 1,
-    "secondary_schools_1km": 1,
-    "govt_institutions_vicinity": 1
-  }},
-  "land_measurements": {{
-    "land_length": 38.0,
-    "land_breadth": 15.0,
-    "land_area_site_sqft": "569.7 Sqft",
-    "adopted_land_area_sqft": 569.7,
-    "per_unit_land_rate": 0,
-    "total_land_value": "=B46*B47"
-  }},
-  "construction_floors": {{
-    "floors": [
-      {{"name": "Basement", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Stilt Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Ground Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "First Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Second Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Third Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Fouth Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Fifth Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Six Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}},
-      {{"name": "Seven Floor", "actual_area": 0, "permissible_area": 0, "adopted_area": 0}}
-    ],
-    "built_up_rate": 0,
-    "total_property_value": 0
-  }},
-  "accommodation": {{
-    "no_of_floors": 5,
-    "toilet_available": "Yes",
-    "no_of_lifts": 0,
-    "apartments_per_floor": 1,
-    "electricity_meter_installed": "Yes",
-    "electricity_meter_number": "NA"
-  }},
-  "legal_checks": {{
-    "documents_name": "Other",
-    "person_met": "string",
-    "relation_with_owner": "string",
-    "property_situated_at": "MC",
-    "is_sanction_plan_compliant": "No",
-    "pathway_clear": "Yes",
-    "sanction_plan_approval_no_date": "No",
-    "is_disaster_prone": "No",
-    "approach_by_public_road": "Yes",
-    "near_nala": "No",
-    "in_hte_line": "No",
-    "utilities_in_vicinity": "Yes",
-    "approved_land_master_plan": "Residential",
-    "width_of_public_road": "23 Ft Wide",
-    "current_uses": "Residential",
-    "opinion_about_report": "Negative | Positive",
-    "occupancy_250m": "80%-90%",
-    "tentative_rent": "",
-    "development_250m": "80%-90%",
-    "property_limit": "Within MC Limit",
-    "adm": "Average"
-  }},
-  "reference": {{
-    "reference_name": "Local Enquiry",
-    "reference_mobile": "string",
-    "feedback": "string"
-  }},
-  "remarks": "Complete 13-point numbered technical remarks string"
-}}
-"""
-            contents = [prompt]
-            for img_b in images[:4]:
-                contents.append(types.Part.from_bytes(data=img_b, mime_type="image/jpeg"))
-
-            response = client.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
-                )
-            )
-
-            if response and response.text:
-                data_dict = json.loads(response.text)
-                return ReportData(**data_dict)
-        except Exception as e:
-            print(f"[Gemini Vision OCR Error: {e}] - Falling back to dynamic regex NLP engine.")
-            return None
-
     def process_case_folder(self, folder_path: str) -> ReportData:
-        """Full pipeline: Ingest files -> Multimodal Vision OCR -> Dynamic NLP Entity Extractor."""
+        """Full offline pipeline: Ingest files -> Classify -> Local OCR/Parsing -> Semantic Extractor -> Validation."""
         scan_res = self.inspect_folder(folder_path)
         all_text = scan_res["all_text"]
-        images = scan_res["images"]
         gps = scan_res["gps_from_exif"]
 
-        report = None
-        if self.api_key:
-            report = self.extract_with_gemini(all_text, images)
-
-        if not report:
-            report = self.dynamic_entity_extractor(all_text, gps)
-
+        report = self.dynamic_entity_extractor(all_text, gps)
+        report = ValuationValidator.validate_and_score(report)
         report.case_name = os.path.basename(folder_path.rstrip("/\\"))
         report.raw_files_summary = scan_res["files"]
         return report
 
-    def process_file_list(self, file_paths: List[str]) -> ReportData:
-        """Full pipeline for a given list of arbitrary file paths."""
-        files_info = []
+    def ingest_incremental_files(self, existing_report: ReportData, new_file_paths: List[str]) -> ReportData:
+        """Incrementally parses new files and updates report data."""
+        files_info = list(existing_report.raw_files_summary)
         aggregated_text = []
-        images_to_process = []
-        found_gps = None
+        found_gps = existing_report.header.geo_tag
 
-        for p in file_paths:
-            if not os.path.exists(p) or os.path.isdir(p):
-                continue
-            fname = os.path.basename(p)
-            if fname.startswith("~$") or fname.startswith("."):
-                continue
-
-            f_res = self.inspect_file(p)
+        for fpath in new_file_paths:
+            f_res = self.inspect_file(fpath)
+            fname = os.path.basename(fpath)
             files_info.append({
                 "filename": f_res["filename"],
                 "path": f_res["path"],
                 "type": f_res["type"],
+                "classification_label": f_res["classification_label"],
+                "priority": f_res["priority"],
                 "size_bytes": f_res["size_bytes"],
                 "size_display": f_res["size_display"]
             })
 
             if f_res["text"]:
-                aggregated_text.append(f"=== FILE: {fname} ===\n{f_res['text']}")
-            if f_res["images"]:
-                images_to_process.extend(f_res["images"][:4])
+                aggregated_text.append(f"=== DOCUMENT [{f_res['classification_label']}]: {fname} ===\n{f_res['text']}")
             if f_res["gps"] and not found_gps:
                 found_gps = f_res["gps"]
 
         all_text = "\n\n".join(aggregated_text)
-        report = None
-        if self.api_key:
-            report = self.extract_with_gemini(all_text, images_to_process)
-
-        if not report:
-            report = self.dynamic_entity_extractor(all_text, found_gps)
-
+        report = self.dynamic_entity_extractor(all_text, found_gps)
+        report = ValuationValidator.validate_and_score(report)
         report.raw_files_summary = files_info
         return report

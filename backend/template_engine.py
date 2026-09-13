@@ -25,6 +25,16 @@ class TemplateEngine:
         "third floor", "fourth floor", "fifth floor", "six floor", "seven floor"
     }
 
+    KNOWN_DATA_COORDS = {
+        "B2", "D2", "B3", "B4", "B5", "B6", "B7", "B8", "B10", "B11", "B12", "B13", "B14", "B15", "B16", "B17", "B18", "B19", "D19",
+        "A22", "B22", "C22", "D22", "A25", "B25", "C25", "D25", "B26", "B27", "B28",
+        "B30", "B31", "B32", "B33", "B34", "B35", "B37", "D37", "B38", "B39", "B40", "B41", "B42",
+        "B44", "D44", "B45", "B46", "B47", "B64", "C66",
+        "B76", "D76", "B77", "D77", "B78", "D78",
+        "B88", "B90", "D90", "B91", "D91", "B92", "D92", "B93", "D93", "B94", "D94", "B95", "D95", "B96", "D96", "B97", "D97", "B98", "D98", "B99", "D99",
+        "B102", "B103", "B104", "A106"
+    }
+
     def __init__(self, template_path: str):
         self.template_path = template_path
         if not os.path.exists(template_path):
@@ -36,7 +46,7 @@ class TemplateEngine:
             return True
         return False
 
-    def is_header_or_label(self, cell_val: Any, col_idx: int, row_idx: int) -> bool:
+    def is_header_or_label(self, cell_val: Any, col_idx: int, row_idx: int, coord: Optional[str] = None) -> bool:
         """Determines if a cell is a static label/header or a data cell."""
         if cell_val is None:
             return False
@@ -48,13 +58,23 @@ class TemplateEngine:
         if self.is_formula(str_val):
             return False
 
+        # If it is a known data coordinate or data area, it is NOT a header/label
+        if coord and coord in self.KNOWN_DATA_COORDS:
+            return False
+        if row_idx in (22, 25) or row_idx >= 106:
+            return False
+        if 52 <= row_idx <= 61 and col_idx in (2, 3, 4):
+            return False
+        if col_idx in (2, 4) and row_idx not in (1, 9, 20, 21, 23, 24, 29, 36, 43, 49, 50, 51, 67, 81, 84, 87, 100, 101, 105):
+            return False
+
         # Row 1 header or title
         if row_idx == 1:
             return True
 
         val_lower = str_val.lower()
         for kw in self.KNOWN_LABELS:
-            if kw in val_lower:
+            if kw in val_lower and len(str_val) < 60:
                 return True
 
         # Columns A and C in standard valuation templates are almost always label columns
@@ -101,7 +121,7 @@ class TemplateEngine:
                         "row": r,
                         "col": c
                     }
-                elif self.is_header_or_label(val, c, r):
+                elif self.is_header_or_label(val, c, r, coord):
                     metadata_cells[coord] = {
                         "type": "label",
                         "value": str(val),

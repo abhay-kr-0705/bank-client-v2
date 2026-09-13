@@ -77,8 +77,8 @@
 
         <div class="sample-actions" id="sampleCasesList">
           <span class="text-muted text-sm">Quick Test:</span>
-          <button class="btn-chip active" id="btnLoadSunitaCase">
-            <i class="fa-solid fa-bolt text-warning"></i> Load "SUNITA DEVI BACHHAN KUMAR"
+          <button class="btn-chip" id="btnLoadSunitaCase">
+            <i class="fa-solid fa-folder-open text-warning"></i> Load Sample Case Folder
           </button>
           <button class="btn btn-sm btn-outline btn-icon" id="btnToggleIngestDeck" title="Collapse / Expand Ingestion Box">
             <i class="fa-solid fa-chevron-up" id="toggleIngestIcon"></i>
@@ -115,7 +115,7 @@
             <span class="info-tooltip-badge" title="Local Server Mode: Enter absolute local folder path to process gigabytes of files directly from disk without upload limits."><i class="fa-solid fa-circle-question text-accent"></i></span>
           </label>
           <div class="input-group">
-            <input type="text" id="folderPathInput" placeholder="e.g. d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR" value="d:\ABHAY VICKY\Banking client project\SUNITA DEVI BACHHAN KUMAR">
+            <input type="text" id="folderPathInput" placeholder="Enter path to case folder e.g. D:\Cases\Case_01" value="">
             <button class="btn btn-accent" id="btnRunFolderPath">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Extract & Map
             </button>
@@ -281,35 +281,35 @@
                 </div>
                 <div class="form-group">
                   <label>Application ID (B2)</label>
-                  <input type="text" id="inp_application_id" class="form-control" placeholder="e.g. AP-10524478">
+                  <input type="text" id="inp_application_id" class="form-control" placeholder="e.g. AP-10524478" value="">
                 </div>
                 <div class="form-group">
                   <label>Applicant Name (D2)</label>
-                  <input type="text" id="inp_applicant_name" class="form-control" placeholder="e.g. Mrs. Sunita Devi">
+                  <input type="text" id="inp_applicant_name" class="form-control" placeholder="e.g. Applicant Name" value="">
                 </div>
                 <div class="form-group">
                   <label>Type of Property (B3)</label>
-                  <input type="text" id="inp_property_type" class="form-control" value="Row House">
+                  <input type="text" id="inp_property_type" class="form-control" placeholder="e.g. Row House / Flat" value="">
                 </div>
                 <div class="form-group">
                   <label>Completion % (B4)</label>
-                  <input type="number" step="0.01" id="inp_completion_percent" class="form-control" value="1.0">
+                  <input type="number" step="0.01" id="inp_completion_percent" class="form-control" placeholder="1.0" value="">
                 </div>
                 <div class="form-group">
                   <label>Structure Type (B5)</label>
-                  <input type="text" id="inp_structure_type" class="form-control" value="RCC">
+                  <input type="text" id="inp_structure_type" class="form-control" placeholder="e.g. RCC / Load Bearing" value="">
                 </div>
                 <div class="form-group">
                   <label>Age of Property (B6)</label>
-                  <input type="text" id="inp_age_of_property" class="form-control" value="08 Years">
+                  <input type="text" id="inp_age_of_property" class="form-control" placeholder="e.g. 05 Years" value="">
                 </div>
                 <div class="form-group">
                   <label>Dwelling Units Owned (B7)</label>
-                  <input type="number" id="inp_dwelling_units_owned" class="form-control" value="1">
+                  <input type="number" id="inp_dwelling_units_owned" class="form-control" placeholder="1" value="">
                 </div>
                 <div class="form-group">
                   <label>Geo Tag (Lat, Long) (B8)</label>
-                  <input type="text" id="inp_geo_tag" class="form-control" placeholder="e.g. 28.627023, 77.026233">
+                  <input type="text" id="inp_geo_tag" class="form-control" placeholder="e.g. 28.627023, 77.026233" value="">
                 </div>
               </div>
             </div>
@@ -323,49 +323,49 @@
               <div class="form-grid-3">
                 <div class="form-group">
                   <label>Street Name / No. (B10)</label>
-                  <input type="text" id="inp_street_name" class="form-control" value="Gali No. 14">
+                  <input type="text" id="inp_street_name" class="form-control" placeholder="Street / Road / Gali" value="">
                 </div>
                 <div class="form-group">
                   <label>Nearest Landmark (B11)</label>
-                  <input type="text" id="inp_nearest_landmark" class="form-control" value="Nearby Aggarwal Store">
+                  <input type="text" id="inp_nearest_landmark" class="form-control" placeholder="Nearest Landmark" value="">
                 </div>
                 <div class="form-group">
                   <label>Village Name (B12)</label>
-                  <input type="text" id="inp_village_name" class="form-control" value="Nawada">
+                  <input type="text" id="inp_village_name" class="form-control" placeholder="Village Name" value="">
                 </div>
                 <div class="form-group">
                   <label>City (B13)</label>
-                  <input type="text" id="inp_city" class="form-control" value="New Delhi">
+                  <input type="text" id="inp_city" class="form-control" placeholder="City" value="">
                 </div>
                 <div class="form-group">
                   <label>Plot / House / Khasra (B14)</label>
-                  <input type="text" id="inp_plot_house_khasra" class="form-control" value="Property No. 8-B">
+                  <input type="text" id="inp_plot_house_khasra" class="form-control" placeholder="Plot / Flat / House No." value="">
                 </div>
                 <div class="form-group">
                   <label>Floor Number (B15)</label>
-                  <input type="text" id="inp_floor_number" class="form-control" value="Entire Property">
+                  <input type="text" id="inp_floor_number" class="form-control" placeholder="e.g. Entire Property" value="">
                 </div>
                 <div class="form-group">
                   <label>Project / Colony Name (B16)</label>
-                  <input type="text" id="inp_colony_name" class="form-control" value="Vipin garden Extn.">
+                  <input type="text" id="inp_colony_name" class="form-control" placeholder="Colony / Society / Sector" value="">
                 </div>
                 <div class="form-group">
                   <label>Pincode (B19)</label>
-                  <input type="text" id="inp_pincode" class="form-control" value="110059">
+                  <input type="text" id="inp_pincode" class="form-control" placeholder="6-digit Pincode" value="">
                 </div>
                 <div class="form-group">
                   <label>District (D19)</label>
-                  <input type="text" id="inp_district" class="form-control" value="New Delhi">
+                  <input type="text" id="inp_district" class="form-control" placeholder="District" value="">
                 </div>
               </div>
               <div class="form-grid-2 mt-2">
                 <div class="form-group">
                   <label>Address as per Site (B17)</label>
-                  <textarea id="inp_address_site" rows="2" class="form-control"></textarea>
+                  <textarea id="inp_address_site" rows="2" class="form-control" placeholder="Full address observed at physical inspection site..."></textarea>
                 </div>
                 <div class="form-group">
                   <label>Property Address as per Documents (B18)</label>
-                  <textarea id="inp_address_docs" rows="2" class="form-control"></textarea>
+                  <textarea id="inp_address_docs" rows="2" class="form-control" placeholder="Full legal address registered in title deeds..."></textarea>
                 </div>
               </div>
             </div>
@@ -380,19 +380,19 @@
               <div class="form-grid-4">
                 <div class="form-group">
                   <label>East (A22)</label>
-                  <input type="text" id="inp_site_east" class="form-control" value="Others Property/Meter No. 21901820">
+                  <input type="text" id="inp_site_east" class="form-control" placeholder="Site East" value="">
                 </div>
                 <div class="form-group">
                   <label>West (B22)</label>
-                  <input type="text" id="inp_site_west" class="form-control" value="Others Property/Meter No. 46215085">
+                  <input type="text" id="inp_site_west" class="form-control" placeholder="Site West" value="">
                 </div>
                 <div class="form-group">
                   <label>North (C22)</label>
-                  <input type="text" id="inp_site_north" class="form-control" value="Road 23 Ft Wide">
+                  <input type="text" id="inp_site_north" class="form-control" placeholder="Site North" value="">
                 </div>
                 <div class="form-group">
                   <label>South (D22)</label>
-                  <input type="text" id="inp_site_south" class="form-control" value="Others Property">
+                  <input type="text" id="inp_site_south" class="form-control" placeholder="Site South" value="">
                 </div>
               </div>
 
@@ -400,34 +400,34 @@
               <div class="form-grid-4">
                 <div class="form-group">
                   <label>East (A25)</label>
-                  <input type="text" id="inp_deed_east" class="form-control" value="Plot No. 8-A">
+                  <input type="text" id="inp_deed_east" class="form-control" placeholder="Deed East" value="">
                 </div>
                 <div class="form-group">
                   <label>West (B25)</label>
-                  <input type="text" id="inp_deed_west" class="form-control" value="Plot No. 9-A">
+                  <input type="text" id="inp_deed_west" class="form-control" placeholder="Deed West" value="">
                 </div>
                 <div class="form-group">
                   <label>North (C25)</label>
-                  <input type="text" id="inp_deed_north" class="form-control" value="Road 23 Ft Wide">
+                  <input type="text" id="inp_deed_north" class="form-control" placeholder="Deed North" value="">
                 </div>
                 <div class="form-group">
                   <label>South (D25)</label>
-                  <input type="text" id="inp_deed_south" class="form-control" value="Other Land">
+                  <input type="text" id="inp_deed_south" class="form-control" placeholder="Deed South" value="">
                 </div>
               </div>
 
               <div class="form-grid-3 mt-3">
                 <div class="form-group">
                   <label>Boundary Matching (B26)</label>
-                  <input type="text" id="inp_boundary_matching" class="form-control" value="Yes">
+                  <input type="text" id="inp_boundary_matching" class="form-control" placeholder="Yes / No" value="">
                 </div>
                 <div class="form-group">
                   <label>Mismatch Remarks (B27)</label>
-                  <input type="text" id="inp_mismatch_remarks" class="form-control" value="NA">
+                  <input type="text" id="inp_mismatch_remarks" class="form-control" placeholder="NA" value="">
                 </div>
                 <div class="form-group">
                   <label>Occupancy Status (B28)</label>
-                  <input type="text" id="inp_occupancy_status" class="form-control" value="Seller">
+                  <input type="text" id="inp_occupancy_status" class="form-control" placeholder="Seller / Tenant / Vacant" value="">
                 </div>
               </div>
             </div>
@@ -441,23 +441,23 @@
               <div class="form-grid-3">
                 <div class="form-group">
                   <label>Length (B44)</label>
-                  <input type="number" step="0.1" id="inp_land_length" class="form-control" value="38">
+                  <input type="number" step="0.1" id="inp_land_length" class="form-control" placeholder="Length in ft" value="">
                 </div>
                 <div class="form-group">
                   <label>Breadth (D44)</label>
-                  <input type="number" step="0.1" id="inp_land_breadth" class="form-control" value="15">
+                  <input type="number" step="0.1" id="inp_land_breadth" class="form-control" placeholder="Breadth in ft" value="">
                 </div>
                 <div class="form-group">
                   <label>Land Area as per Site (B45)</label>
-                  <input type="text" id="inp_land_area_site_sqft" class="form-control" value="569.7 Sqft">
+                  <input type="text" id="inp_land_area_site_sqft" class="form-control" placeholder="e.g. 500 Sqft" value="">
                 </div>
                 <div class="form-group">
                   <label>Adopted Land Area (Sqft) (B46)</label>
-                  <input type="number" step="0.1" id="inp_adopted_land_area_sqft" class="form-control" value="569.7">
+                  <input type="number" step="0.1" id="inp_adopted_land_area_sqft" class="form-control" placeholder="Adopted Area" value="">
                 </div>
                 <div class="form-group">
                   <label>Per Unit Land Rate (B47)</label>
-                  <input type="number" id="inp_per_unit_land_rate" class="form-control" value="0">
+                  <input type="number" id="inp_per_unit_land_rate" class="form-control" placeholder="Rate" value="">
                 </div>
                 <div class="form-group">
                   <label>Total Land Value (B48)</label>
@@ -496,11 +496,11 @@
               <div class="form-grid-2 mt-3">
                 <div class="form-group">
                   <label>Built-Up Rate in Sqft (B64)</label>
-                  <input type="number" id="inp_built_up_rate" class="form-control" value="0">
+                  <input type="number" id="inp_built_up_rate" class="form-control" placeholder="Rate" value="">
                 </div>
                 <div class="form-group">
                   <label>Total Value of Property (C66)</label>
-                  <input type="number" id="inp_total_property_value" class="form-control" value="0">
+                  <input type="number" id="inp_total_property_value" class="form-control" placeholder="Total Value" value="">
                 </div>
               </div>
             </div>
@@ -514,63 +514,63 @@
               <div class="form-grid-3">
                 <div class="form-group">
                   <label>Documents Name (B88)</label>
-                  <input type="text" id="inp_documents_name" class="form-control" value="Other">
+                  <input type="text" id="inp_documents_name" class="form-control" placeholder="e.g. Sale Deed / GPA" value="">
                 </div>
                 <div class="form-group">
                   <label>Person Met (B90)</label>
-                  <input type="text" id="inp_person_met" class="form-control" value="Mr. Gaurav">
+                  <input type="text" id="inp_person_met" class="form-control" placeholder="Person Met at Site" value="">
                 </div>
                 <div class="form-group">
                   <label>Relation with Owner (D90)</label>
-                  <input type="text" id="inp_relation_with_owner" class="form-control" value="Applicant's Son">
+                  <input type="text" id="inp_relation_with_owner" class="form-control" placeholder="Relation" value="">
                 </div>
                 <div class="form-group">
                   <label>Property Situated At (B91)</label>
-                  <input type="text" id="inp_property_situated_at" class="form-control" value="MC">
+                  <input type="text" id="inp_property_situated_at" class="form-control" placeholder="MC / Gram Panchayat" value="">
                 </div>
                 <div class="form-group">
                   <label>Sanction Plan Compliant (D91)</label>
-                  <input type="text" id="inp_is_sanction_plan_compliant" class="form-control" value="No">
+                  <input type="text" id="inp_is_sanction_plan_compliant" class="form-control" placeholder="Yes / No" value="">
                 </div>
                 <div class="form-group">
                   <label>Pathway Clear (B92)</label>
-                  <input type="text" id="inp_pathway_clear" class="form-control" value="Yes">
+                  <input type="text" id="inp_pathway_clear" class="form-control" placeholder="Yes / No" value="">
                 </div>
                 <div class="form-group">
                   <label>Public Road Approach (D93)</label>
-                  <input type="text" id="inp_approach_by_public_road" class="form-control" value="Yes">
+                  <input type="text" id="inp_approach_by_public_road" class="form-control" placeholder="Yes / No" value="">
                 </div>
                 <div class="form-group">
                   <label>Width of Public Road (B96)</label>
-                  <input type="text" id="inp_width_of_public_road" class="form-control" value="23 Ft Wide">
+                  <input type="text" id="inp_width_of_public_road" class="form-control" placeholder="e.g. 20 Ft Wide" value="">
                 </div>
                 <div class="form-group">
                   <label>Current Uses (D96)</label>
-                  <input type="text" id="inp_current_uses" class="form-control" value="Residential">
+                  <input type="text" id="inp_current_uses" class="form-control" placeholder="Residential / Commercial" value="">
                 </div>
                 <div class="form-group">
                   <label>Report Opinion (B97)</label>
-                  <input type="text" id="inp_opinion_about_report" class="form-control" value="Negative">
+                  <input type="text" id="inp_opinion_about_report" class="form-control" placeholder="Positive / Negative" value="">
                 </div>
                 <div class="form-group">
                   <label>% Occupancy 250m (D97)</label>
-                  <input type="text" id="inp_occupancy_250m" class="form-control" value="80%-90%">
+                  <input type="text" id="inp_occupancy_250m" class="form-control" placeholder="e.g. 80%-90%" value="">
                 </div>
                 <div class="form-group">
                   <label>Tentative Rent (B98)</label>
-                  <input type="text" id="inp_tentative_rent" class="form-control" value="">
+                  <input type="text" id="inp_tentative_rent" class="form-control" placeholder="Rent" value="">
                 </div>
                 <div class="form-group">
                   <label>% Development 250m (D98)</label>
-                  <input type="text" id="inp_development_250m" class="form-control" value="80%-90%">
+                  <input type="text" id="inp_development_250m" class="form-control" placeholder="e.g. 80%-90%" value="">
                 </div>
                 <div class="form-group">
                   <label>Property Limit (B99)</label>
-                  <input type="text" id="inp_property_limit" class="form-control" value="Within MC Limit">
+                  <input type="text" id="inp_property_limit" class="form-control" placeholder="Within MC Limit" value="">
                 </div>
                 <div class="form-group">
                   <label>ADM (D99)</label>
-                  <input type="text" id="inp_adm" class="form-control" value="Average">
+                  <input type="text" id="inp_adm" class="form-control" placeholder="Average / Good" value="">
                 </div>
               </div>
             </div>
@@ -584,20 +584,20 @@
               <div class="form-grid-3">
                 <div class="form-group">
                   <label>Reference Name (B102)</label>
-                  <input type="text" id="inp_reference_name" class="form-control" value="Local Enquiry">
+                  <input type="text" id="inp_reference_name" class="form-control" placeholder="Reference / Local Enquiry" value="">
                 </div>
                 <div class="form-group">
                   <label>Reference Mobile (B103)</label>
-                  <input type="text" id="inp_reference_mobile" class="form-control" value="9540637533">
+                  <input type="text" id="inp_reference_mobile" class="form-control" placeholder="10-digit Mobile No" value="">
                 </div>
                 <div class="form-group">
                   <label>Feedback (B104)</label>
-                  <input type="text" id="inp_feedback" class="form-control" value="1 L to 1.10 L per Sqyds">
+                  <input type="text" id="inp_feedback" class="form-control" placeholder="Feedback / Rate" value="">
                 </div>
               </div>
               <div class="form-group mt-3">
                 <label>13-Point Technical Remarks (Cell A106)</label>
-                <textarea id="inp_remarks" rows="7" class="form-control font-mono text-sm"></textarea>
+                <textarea id="inp_remarks" rows="7" class="form-control font-mono text-sm" placeholder="Extracted technical valuation remarks from field inspection notes..."></textarea>
               </div>
             </div>
 

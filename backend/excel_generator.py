@@ -162,6 +162,29 @@ def generate_excel_report(data: Union[ReportData, dict], output_path: str) -> st
     # Detailed Narrative Remarks
     ws["A106"] = report.remarks
 
+    # Apply Review Highlights and Comments for Low-Confidence or Flagged Fields
+    try:
+        from .smart_mapper import SmartFieldMapper
+        from openpyxl.styles import PatternFill
+        from openpyxl.comments import Comment
+
+        review_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+        if getattr(report, "field_confidences", None):
+            for field_key, fc in report.field_confidences.items():
+                if getattr(fc, "needs_review", False):
+                    coord = SmartFieldMapper.STANDARD_COORDINATE_MAP.get(field_key)
+                    if coord:
+                        try:
+                            cell = ws[coord]
+                            cell.fill = review_fill
+                            conf_pct = int(getattr(fc, "confidence", 0.5) * 100)
+                            reason = getattr(fc, "review_reason", None) or "Please verify this field value"
+                            cell.comment = Comment(f"[REVIEW NEEDED] (Confidence: {conf_pct}%)\n{reason}", "Valuation Engine")
+                        except Exception as cell_err:
+                            print(f"[Highlight cell warning {coord}]: {cell_err}")
+    except Exception as hl_err:
+        print(f"[Excel Highlighting Warning]: {hl_err}")
+
     # Save
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     wb.save(output_path)

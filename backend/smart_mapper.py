@@ -1,5 +1,5 @@
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from .models import ReportData
 
 class SmartFieldMapper:
@@ -150,13 +150,13 @@ class SmartFieldMapper:
         flat["deed_west"] = b.deed_west
         flat["deed_north"] = b.deed_north
         flat["deed_south"] = b.deed_south
-        flat["boundary_matching"] = f" {b.boundary_matching.strip()}" if b.boundary_matching else " Yes"
+        flat["boundary_matching"] = f" {b.boundary_matching.strip()}" if b.boundary_matching and b.boundary_matching.strip() else ""
         flat["mismatch_remarks"] = b.mismatch_remarks
         flat["occupancy_status"] = b.occupancy_status
 
         # Solar & Roof
         s = data.solar_roof_vicinity
-        flat["solar_install_location"] = f" {s.solar_install_location.strip()}" if s.solar_install_location else " Ground"
+        flat["solar_install_location"] = f" {s.solar_install_location.strip()}" if s.solar_install_location and s.solar_install_location.strip() else ""
         flat["shadow_free_roof_sqft"] = s.shadow_free_roof_sqft
         flat["parapet_wall_height"] = s.parapet_wall_height
         flat["cracks_in_roof"] = s.cracks_in_roof
@@ -191,10 +191,10 @@ class SmartFieldMapper:
         # Accommodation
         acc = data.accommodation
         flat["no_of_floors"] = acc.no_of_floors
-        flat["toilet_available"] = f" {acc.toilet_available.strip()}" if acc.toilet_available else " Yes"
+        flat["toilet_available"] = f" {acc.toilet_available.strip()}" if acc.toilet_available and acc.toilet_available.strip() else ""
         flat["no_of_lifts"] = acc.no_of_lifts
         flat["apartments_per_floor"] = acc.apartments_per_floor
-        flat["electricity_meter_installed"] = f" {acc.electricity_meter_installed.strip()}" if acc.electricity_meter_installed else " Yes"
+        flat["electricity_meter_installed"] = f" {acc.electricity_meter_installed.strip()}" if acc.electricity_meter_installed and acc.electricity_meter_installed.strip() else ""
         flat["electricity_meter_number"] = acc.electricity_meter_number
 
         # Legal checks
@@ -202,19 +202,19 @@ class SmartFieldMapper:
         flat["documents_name"] = leg.documents_name
         flat["person_met"] = leg.person_met
         flat["relation_with_owner"] = leg.relation_with_owner
-        flat["property_situated_at"] = f" {leg.property_situated_at.strip()}" if leg.property_situated_at else " MC"
+        flat["property_situated_at"] = f" {leg.property_situated_at.strip()}" if leg.property_situated_at and leg.property_situated_at.strip() else ""
         flat["is_sanction_plan_compliant"] = leg.is_sanction_plan_compliant
         flat["pathway_clear"] = leg.pathway_clear
         flat["sanction_plan_approval_no_date"] = leg.sanction_plan_approval_no_date
         flat["is_disaster_prone"] = leg.is_disaster_prone
-        flat["approach_by_public_road"] = f" {leg.approach_by_public_road.strip()}" if leg.approach_by_public_road else " Yes"
+        flat["approach_by_public_road"] = f" {leg.approach_by_public_road.strip()}" if leg.approach_by_public_road and leg.approach_by_public_road.strip() else ""
         flat["near_nala"] = leg.near_nala
         flat["in_hte_line"] = leg.in_hte_line
         flat["utilities_in_vicinity"] = leg.utilities_in_vicinity
         flat["approved_land_master_plan"] = leg.approved_land_master_plan
         flat["width_of_public_road"] = leg.width_of_public_road
         flat["current_uses"] = leg.current_uses
-        flat["opinion_about_report"] = leg.opinion_about_report
+        flat["opinion_about_report"] = f" {leg.opinion_about_report.strip()}" if leg.opinion_about_report and leg.opinion_about_report.strip() else ""
         flat["occupancy_250m"] = leg.occupancy_250m
         flat["tentative_rent"] = leg.tentative_rent
         flat["development_250m"] = leg.development_250m
@@ -236,13 +236,32 @@ class SmartFieldMapper:
         Maps flat report fields to cell coordinates.
         Uses standard coordinate map as primary, and applies semantic fuzzy matching if custom metadata cells provided.
         """
+        vals, _ = cls.map_to_cells_with_metadata(report_data, metadata_cells)
+        return vals
+
+    @classmethod
+    def map_to_cells_with_metadata(cls, report_data: ReportData, metadata_cells: Optional[Dict[str, Any]] = None) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """
+        Maps flat report fields to cell coordinates and attaches confidence scores + review flags.
+        """
         flat = cls.report_data_to_flat_dict(report_data)
         cell_values = {}
+        cell_metadata = {}
+        confidences = getattr(report_data, "field_confidences", {}) or {}
 
         # 1. Standard mapping
         for field, coord in cls.STANDARD_COORDINATE_MAP.items():
             if field in flat and flat[field] is not None:
                 cell_values[coord] = flat[field]
+
+            if field in confidences:
+                fc = confidences[field]
+                cell_metadata[coord] = {
+                    "field_key": field,
+                    "confidence": getattr(fc, "confidence", 1.0),
+                    "needs_review": getattr(fc, "needs_review", False),
+                    "review_reason": getattr(fc, "review_reason", None)
+                }
 
         # Floor table rows B52:D61
         for i in range(10):
@@ -265,4 +284,4 @@ class SmartFieldMapper:
         cell_values["B80"] = "=B63"
         cell_values["B83"] = "=B82*D82"
 
-        return cell_values
+        return cell_values, cell_metadata

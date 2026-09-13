@@ -123,13 +123,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const res = await fetch('/api/health');
       const data = await res.json();
-      if (data.has_api_key) {
-        engineStatusText.textContent = `Multimodal Gemini (${data.model_name}) Active`;
-        engineStatusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-        engineStatusBadge.style.color = '#6ee7b7';
-      } else {
-        engineStatusText.textContent = `Local Dynamic Hybrid OCR Active`;
-      }
+      engineStatusText.textContent = `Offline RapidOCR & Local Semantic Engine Active`;
+      engineStatusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+      engineStatusBadge.style.color = '#6ee7b7';
     } catch (e) {
       console.warn("Backend connection pending:", e);
     }
@@ -242,7 +238,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cellObj.is_header) cellClass += ' grid-header-cell';
         if (cellObj.is_formula) cellClass += ' grid-formula-cell';
         if (cellObj.coord === selectedCellCoord) cellClass += ' cell-selected';
-        if (cellObj.fill_color) {
+        
+        // Review Highlighting (Confidence Decision)
+        if (cellObj.needs_review) {
+          cellClass += ' cell-needs-review';
+          td.style.backgroundColor = '#fff3cd';
+          td.style.color = '#92400e';
+          td.style.border = '1px solid #f59e0b';
+          const conf = Math.round((cellObj.confidence || 0.5) * 100);
+          td.title = `[REVIEW NEEDED - ${conf}% Confidence]\n${cellObj.review_reason || 'Please verify this field value'}`;
+        } else if (cellObj.fill_color) {
           td.style.backgroundColor = `#${cellObj.fill_color.slice(-6)}`;
         }
         td.className = cellClass;
@@ -840,11 +845,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_report_title').value = h.report_title || "India Shelter Report";
     document.getElementById('inp_application_id').value = h.application_id || "";
     document.getElementById('inp_applicant_name').value = h.applicant_name || "";
-    document.getElementById('inp_property_type').value = h.property_type || "Row House";
-    document.getElementById('inp_completion_percent').value = h.completion_percent !== undefined ? h.completion_percent : 1.0;
-    document.getElementById('inp_structure_type').value = h.structure_type || "RCC";
-    document.getElementById('inp_age_of_property').value = h.age_of_property || "08 Years";
-    document.getElementById('inp_dwelling_units_owned').value = h.dwelling_units_owned || 1;
+    document.getElementById('inp_property_type').value = h.property_type || "";
+    document.getElementById('inp_completion_percent').value = (h.completion_percent !== undefined && h.completion_percent > 0) ? h.completion_percent : "";
+    document.getElementById('inp_structure_type').value = h.structure_type || "";
+    document.getElementById('inp_age_of_property').value = h.age_of_property || "";
+    document.getElementById('inp_dwelling_units_owned').value = h.dwelling_units_owned || "";
     document.getElementById('inp_geo_tag').value = h.geo_tag || "";
 
     // Address
@@ -854,7 +859,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_village_name').value = a.village_name || "";
     document.getElementById('inp_city').value = a.city || "";
     document.getElementById('inp_plot_house_khasra').value = a.plot_house_khasra || "";
-    document.getElementById('inp_floor_number').value = a.floor_number || "Entire Property";
+    document.getElementById('inp_floor_number').value = a.floor_number || "";
     document.getElementById('inp_colony_name').value = a.colony_name || "";
     document.getElementById('inp_address_site').value = a.address_site || "";
     document.getElementById('inp_address_docs').value = a.address_docs || "";
@@ -871,48 +876,48 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('inp_deed_west').value = b.deed_west || "";
     document.getElementById('inp_deed_north').value = b.deed_north || "";
     document.getElementById('inp_deed_south').value = b.deed_south || "";
-    document.getElementById('inp_boundary_matching').value = b.boundary_matching ? b.boundary_matching.trim() : "Yes";
-    document.getElementById('inp_mismatch_remarks').value = b.mismatch_remarks || "NA";
-    document.getElementById('inp_occupancy_status').value = b.occupancy_status ? b.occupancy_status.trim() : "Seller";
+    document.getElementById('inp_boundary_matching').value = b.boundary_matching ? b.boundary_matching.trim() : "";
+    document.getElementById('inp_mismatch_remarks').value = b.mismatch_remarks || "";
+    document.getElementById('inp_occupancy_status').value = b.occupancy_status ? b.occupancy_status.trim() : "";
 
     // Land
     const l = data.land_measurements || {};
-    document.getElementById('inp_land_length').value = l.land_length || 38;
-    document.getElementById('inp_land_breadth').value = l.land_breadth || 15;
-    document.getElementById('inp_land_area_site_sqft').value = l.land_area_site_sqft || "569.7 Sqft";
-    document.getElementById('inp_adopted_land_area_sqft').value = l.adopted_land_area_sqft || 569.7;
-    document.getElementById('inp_per_unit_land_rate').value = l.per_unit_land_rate || 0;
+    document.getElementById('inp_land_length').value = l.land_length || "";
+    document.getElementById('inp_land_breadth').value = l.land_breadth || "";
+    document.getElementById('inp_land_area_site_sqft').value = l.land_area_site_sqft || "";
+    document.getElementById('inp_adopted_land_area_sqft').value = l.adopted_land_area_sqft || "";
+    document.getElementById('inp_per_unit_land_rate').value = l.per_unit_land_rate || "";
 
     // Floors Table
     const f = data.construction_floors || {};
     initFloorTable(f.floors);
-    document.getElementById('inp_built_up_rate').value = f.built_up_rate || 0;
-    document.getElementById('inp_total_property_value').value = f.total_property_value || 0;
+    document.getElementById('inp_built_up_rate').value = f.built_up_rate || "";
+    document.getElementById('inp_total_property_value').value = f.total_property_value || "";
     recalculateFloorTotals();
 
     // Legal Checks
     const leg = data.legal_checks || {};
-    document.getElementById('inp_documents_name').value = leg.documents_name || "Other";
-    document.getElementById('inp_person_met').value = leg.person_met || "Mr. Gaurav";
-    document.getElementById('inp_relation_with_owner').value = leg.relation_with_owner || "Applicant's Son";
-    document.getElementById('inp_property_situated_at').value = leg.property_situated_at ? leg.property_situated_at.trim() : "MC";
-    document.getElementById('inp_is_sanction_plan_compliant').value = leg.is_sanction_plan_compliant || "No";
-    document.getElementById('inp_pathway_clear').value = leg.pathway_clear || "Yes";
-    document.getElementById('inp_approach_by_public_road').value = leg.approach_by_public_road ? leg.approach_by_public_road.trim() : "Yes";
-    document.getElementById('inp_width_of_public_road').value = leg.width_of_public_road || "23 Ft Wide";
-    document.getElementById('inp_current_uses').value = leg.current_uses || "Residential";
-    document.getElementById('inp_opinion_about_report').value = leg.opinion_about_report ? leg.opinion_about_report.trim() : "Negative";
-    document.getElementById('inp_occupancy_250m').value = leg.occupancy_250m || "80%-90%";
+    document.getElementById('inp_documents_name').value = leg.documents_name || "";
+    document.getElementById('inp_person_met').value = leg.person_met || "";
+    document.getElementById('inp_relation_with_owner').value = leg.relation_with_owner || "";
+    document.getElementById('inp_property_situated_at').value = leg.property_situated_at ? leg.property_situated_at.trim() : "";
+    document.getElementById('inp_is_sanction_plan_compliant').value = leg.is_sanction_plan_compliant || "";
+    document.getElementById('inp_pathway_clear').value = leg.pathway_clear || "";
+    document.getElementById('inp_approach_by_public_road').value = leg.approach_by_public_road ? leg.approach_by_public_road.trim() : "";
+    document.getElementById('inp_width_of_public_road').value = leg.width_of_public_road || "";
+    document.getElementById('inp_current_uses').value = leg.current_uses || "";
+    document.getElementById('inp_opinion_about_report').value = leg.opinion_about_report ? leg.opinion_about_report.trim() : "";
+    document.getElementById('inp_occupancy_250m').value = leg.occupancy_250m || "";
     document.getElementById('inp_tentative_rent').value = leg.tentative_rent || "";
-    document.getElementById('inp_development_250m').value = leg.development_250m || "80%-90%";
-    document.getElementById('inp_property_limit').value = leg.property_limit || "Within MC Limit";
-    document.getElementById('inp_adm').value = leg.adm || "Average";
+    document.getElementById('inp_development_250m').value = leg.development_250m || "";
+    document.getElementById('inp_property_limit').value = leg.property_limit || "";
+    document.getElementById('inp_adm').value = leg.adm || "";
 
     // Reference
     const r = data.reference || {};
-    document.getElementById('inp_reference_name').value = r.reference_name || "Local Enquiry";
-    document.getElementById('inp_reference_mobile').value = r.reference_mobile || "9540637533";
-    document.getElementById('inp_feedback').value = r.feedback || "1 L to 1.10 L per Sqyds";
+    document.getElementById('inp_reference_name').value = r.reference_name || "";
+    document.getElementById('inp_reference_mobile').value = r.reference_mobile || "";
+    document.getElementById('inp_feedback').value = r.feedback || "";
 
     // Remarks
     document.getElementById('inp_remarks').value = data.remarks || "";
@@ -921,19 +926,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sync Form to Grid Action
   if (btnSyncFormToGrid) {
     btnSyncFormToGrid.addEventListener('click', async () => {
-      showToast('Syncing form values to live grid...', 'info');
+      showToast('Syncing form values to live grid & server session...', 'info');
       
       const payload = {
-        session_id: currentSessionId,
+        report_title: document.getElementById('inp_report_title').value,
         header: {
           report_title: document.getElementById('inp_report_title').value,
           application_id: document.getElementById('inp_application_id').value,
           applicant_name: document.getElementById('inp_applicant_name').value,
           property_type: document.getElementById('inp_property_type').value,
-          completion_percent: parseFloat(document.getElementById('inp_completion_percent').value || 1.0),
+          completion_percent: parseFloat(document.getElementById('inp_completion_percent').value || 0.0),
           structure_type: document.getElementById('inp_structure_type').value,
           age_of_property: document.getElementById('inp_age_of_property').value,
-          dwelling_units_owned: parseInt(document.getElementById('inp_dwelling_units_owned').value || 1),
+          dwelling_units_owned: parseInt(document.getElementById('inp_dwelling_units_owned').value || 0),
           geo_tag: document.getElementById('inp_geo_tag').value
         },
         address: {
@@ -963,11 +968,11 @@ document.addEventListener('DOMContentLoaded', () => {
           occupancy_status: document.getElementById('inp_occupancy_status').value
         },
         land_measurements: {
-          land_length: parseFloat(document.getElementById('inp_land_length').value || 38),
-          land_breadth: parseFloat(document.getElementById('inp_land_breadth').value || 15),
+          land_length: parseFloat(document.getElementById('inp_land_length').value || 0.0),
+          land_breadth: parseFloat(document.getElementById('inp_land_breadth').value || 0.0),
           land_area_site_sqft: document.getElementById('inp_land_area_site_sqft').value,
-          adopted_land_area_sqft: parseFloat(document.getElementById('inp_adopted_land_area_sqft').value || 569.7),
-          per_unit_land_rate: parseFloat(document.getElementById('inp_per_unit_land_rate').value || 0),
+          adopted_land_area_sqft: parseFloat(document.getElementById('inp_adopted_land_area_sqft').value || 0.0),
+          per_unit_land_rate: parseFloat(document.getElementById('inp_per_unit_land_rate').value || 0.0),
           total_land_value: "=B46*B47"
         },
         legal_checks: {
@@ -995,10 +1000,25 @@ document.addEventListener('DOMContentLoaded', () => {
         remarks: document.getElementById('inp_remarks').value
       };
 
-      currentReportData = payload;
-      // Reload live grid
-      loadInitialGridState(currentActiveSheet);
-      showToast('Form synced to live spreadsheet grid!', 'success');
+      try {
+        const res = await fetch('/api/session/update-report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: currentSessionId,
+            report_data: payload
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          currentReportData = data.report_data;
+          currentGridData = data.grid;
+          renderSpreadsheetGrid(currentGridData, spreadsheetViewport, true);
+          showToast('Form successfully saved to session & live grid updated!', 'success');
+        }
+      } catch (err) {
+        showToast(`Sync failed: ${err.message}`, 'error');
+      }
     });
   }
 

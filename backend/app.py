@@ -71,12 +71,17 @@ class CellUpdateRequest(BaseModel):
     coordinate: str
     value: Any
 
+class ReportUpdateRequest(BaseModel):
+    session_id: Optional[str] = "default_session"
+    report_data: ReportData
+
 @app.get("/api/health")
 def get_health():
     return {
         "status": "healthy",
-        "has_api_key": bool(SERVER_CONFIG["gemini_api_key"]),
-        "model_name": SERVER_CONFIG["model_name"]
+        "engine": "Offline RapidOCR & Local Semantic Engine",
+        "has_api_key": False,
+        "model_name": "local-offline"
     }
 
 @app.post("/api/settings")
@@ -188,6 +193,17 @@ def update_grid_cell(req: CellUpdateRequest):
     session = get_session(req.session_id)
     session.update_cell_value(req.coordinate, req.value)
     return {"success": True, "updated": req.coordinate, "value": req.value}
+
+@app.post("/api/session/update-report")
+def update_session_report(req: ReportUpdateRequest):
+    """Updates session report data from frontend form sync and returns updated live grid."""
+    session = get_session(req.session_id)
+    grid = session.update_report_data(req.report_data)
+    return {
+        "success": True,
+        "grid": grid,
+        "report_data": session.report_data.dict()
+    }
 
 @app.post("/api/session/clear-data")
 def clear_session_data(session_id: Optional[str] = Query("default_session")):

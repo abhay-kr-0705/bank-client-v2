@@ -265,22 +265,52 @@ class SessionManager:
             elif isinstance(sec_val, str) and sec_val.strip():
                 curr_dict[section] = sec_val
 
+        curr_dict["field_confidences"] = incoming.field_confidences
+        curr_dict["overall_confidence"] = incoming.overall_confidence
+        curr_dict["review_needed_count"] = incoming.review_needed_count
+
         self.report_data = ReportData(**curr_dict)
+
+    def update_report_data(self, new_data: Union[ReportData, dict]) -> Dict[str, Any]:
+        """Updates session report data from frontend form sync and re-validates."""
+        if isinstance(new_data, dict):
+            self.report_data = ReportData(**new_data)
+        else:
+            self.report_data = new_data
+        from .validator import ValuationValidator
+        self.report_data = ValuationValidator.validate_and_score(self.report_data)
+        return self.get_live_grid_preview()
 
     def update_cell_value(self, coord: str, value: Any):
         """Updates a cell value manually edited in the web spreadsheet grid."""
         self.cell_overrides[coord] = value
 
     def get_live_grid_preview(self, sheet: Union[str, int] = 0) -> Dict[str, Any]:
-        """Returns the populated spreadsheet grid with current session values, formulas, extra rows/cols."""
+        """Returns the populated spreadsheet grid with current session values, formulas, review flags, extra rows/cols."""
         self.active_sheet = sheet
-        cell_values = SmartFieldMapper.map_to_cells(self.report_data)
+        cell_values, cell_metadata = SmartFieldMapper.map_to_cells_with_metadata(self.report_data)
         # Apply manual web overrides
         cell_values.update(self.cell_overrides)
 
         engine = TemplateEngine(self.sanitized_template_path)
         base_grid = engine.export_grid_json(sheet=sheet, filled_values=cell_values if (sheet == 0 or sheet == "Sheet1") else None)
         
+        # Decorate data cells with confidence and review status
+        for row_obj in base_grid["rows"]:
+            for cell_obj in row_obj["cells"]:
+                coord = cell_obj["coord"]
+                meta = cell_metadata.get(coord)
+                if meta:
+                    cell_obj["confidence"] = meta.get("confidence", 1.0)
+                    cell_obj["needs_review"] = meta.get("needs_review", False)
+                    cell_obj["review_reason"] = meta.get("review_reason")
+                    if meta.get("needs_review"):
+                        cell_obj["fill_color"] = "FFF3CD"
+                else:
+                    cell_obj["confidence"] = 1.0
+                    cell_obj["needs_review"] = False
+                    cell_obj["review_reason"] = None
+
         # Expand extra rows/cols if added by user
         current_rows = base_grid["rows"]
         max_c = base_grid["max_col"] + self.extra_cols
@@ -302,7 +332,9 @@ class SessionManager:
                         "formula": str(val) if str(val).startswith("=") else None,
                         "is_header": False,
                         "is_bold": False,
-                        "fill_color": None
+                        "fill_color": None,
+                        "needs_review": False,
+                        "confidence": 1.0
                     })
 
         start_r = len(current_rows) + 1
@@ -322,20 +354,28 @@ class SessionManager:
                     "formula": str(val) if str(val).startswith("=") else None,
                     "is_header": False,
                     "is_bold": False,
-                    "fill_color": None
+                    "fill_color": None,
+                    "needs_review": False,
+                    "confidence": 1.0
                 })
             current_rows.append({"row": r, "cells": cols_data})
 
         base_grid["max_row"] = len(current_rows)
         base_grid["max_col"] = max_c
+        base_grid["overall_confidence"] = getattr(self.report_data, "overall_confidence", 1.0)
+        base_grid["review_needed_count"] = getattr(self.report_data, "review_needed_count", 0)
         return base_grid
 
     def export_final_excel(self, output_path: str) -> str:
-        """Generates the final Excel file preserving all original styling, formulas, and custom edits."""
+        """Generates the final Excel file preserving all original styling, formulas, and highlighting review items."""
+        from openpyxl.styles import PatternFill
+        from openpyxl.comments import Comment
+
         wb = openpyxl.load_workbook(self.sanitized_template_path, data_only=False)
         ws = wb.active
 
-        cell_values = SmartFieldMapper.map_to_cells(self.report_data)
+        review_fill = PatternFill(start_color="FFF3CD", end_color="FFF3CD", fill_type="solid")
+        cell_values, cell_metadata = SmartFieldMapper.map_to_cells_with_metadata(self.report_data)
         cell_values.update(self.cell_overrides)
 
         for coord, val in cell_values.items():
@@ -356,6 +396,14 @@ class SessionManager:
                             cell.value = val
                 else:
                     cell.value = val
+
+                # Apply soft amber highlight and comment if field needs review
+                meta = cell_metadata.get(coord)
+                if meta and meta.get("needs_review"):
+                    cell.fill = review_fill
+                    conf_pct = int(meta.get("confidence", 0.5) * 100)
+                    reason = meta.get("review_reason") or "Please verify this field value"
+                    cell.comment = Comment(f"[REVIEW NEEDED] (Confidence: {conf_pct}%)\n{reason}", "Valuation Engine")
             except Exception as e:
                 print(f"[Export Cell Warning: {coord} -> {e}]")
 
